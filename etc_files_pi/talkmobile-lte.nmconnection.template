@@ -1,0 +1,17 @@
+[connection]
+id=talkmobile-lte
+type=gsm
+interface-name=cdc-wdm0
+autoconnect=true
+
+[gsm]
+apn=${TALKMOBILE_APN}
+
+[ipv4]
+method=auto
+
+[ipv6]
+addr-gen-mode=default
+method=auto
+
+[proxy]

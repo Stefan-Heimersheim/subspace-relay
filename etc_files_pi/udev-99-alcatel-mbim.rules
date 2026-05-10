@@ -1,0 +1,6 @@
+# Alcatel 1bbb:00b6: option grabs the MBIM data interface (bInterfaceNumber 04)
+# before cdc_mbim can claim the control+data pair. Fix on every add event.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", \
+  ATTRS{idVendor}=="1bbb", ATTRS{idProduct}=="00b6", \
+  ATTR{bInterfaceNumber}=="04", \
+  RUN+="/usr/local/sbin/alcatel-mbim-fix %k"

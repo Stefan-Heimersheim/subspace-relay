@@ -1,0 +1,11 @@
+[Unit]
+Description=Set MPTCP subflow and add_addr limits
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip mptcp limits set subflow 4 add_addr_accepted 4
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

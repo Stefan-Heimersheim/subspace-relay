@@ -1,0 +1,7 @@
+#!/bin/bash
+# Rebind Alcatel 1bbb:00b6 MBIM interface pair away from option → cdc_mbim.
+# Called by udev with the data interface name (e.g. 1-1.1:1.4) as $1.
+DATA="$1"
+CTRL="${DATA%4}3"
+echo "$DATA" > /sys/bus/usb/drivers/option/unbind 2>/dev/null || true
+echo "$CTRL" > /sys/bus/usb/drivers/cdc_mbim/bind 2>/dev/null || true

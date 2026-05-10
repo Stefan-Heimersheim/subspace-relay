@@ -1,0 +1,20 @@
+[connection]
+id=ee-lte
+type=gsm
+interface-name=cdc-wdm1
+autoconnect=true
+
+[gsm]
+# IMPORTANT: must be `eesecure`, NOT `everywhere`. The `everywhere` APN
+# returns the MBIM error "IPv6 only allowed" and refuses to bring up IPv4.
+apn=${EE_APN}
+
+[ipv4]
+method=auto
+route-metric=701
+
+[ipv6]
+addr-gen-mode=default
+method=auto
+
+[proxy]

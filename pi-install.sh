@@ -1,0 +1,231 @@
+#!/bin/bash
+# Pi pre-reboot install — fully idempotent. Reads ./config.sh for defaults;
+# VPS_IP and SS_PASSWORD can be passed on the command line from vps-install.sh.
+# Fetches sslocal, renders templates, and installs persistent boot-time config.
+#
+# Run on the Pi as root: `sudo ./pi-install.sh`
+# After reboot, optionally run: `sudo ./pi-post-reboot.sh`
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SRC="$ROOT/etc_files_pi"
+. "$ROOT/lib.sh"
+require_root "$@"
+
+KERNEL_RELEASE="${KERNEL_RELEASE:-v6.12.87}"
+KERNEL_VERSION="${KERNEL_VERSION:-6.12.87-v8-mptcp-redundant}"
+KERNEL_PKG_VERSION="${KERNEL_PKG_VERSION:-6.12.87-1}"
+KERNEL_REPO="${KERNEL_REPO:-https://github.com/Stefan-Heimersheim/linux-mptcp-redundant}"
+
+generate_psk() {
+    openssl rand -base64 18 | tr -d '+/='
+}
+
+# fetch_url URL DST — download with retry, idempotent if file exists & non-empty.
+fetch_url() {
+    local url=$1 dst=$2
+    if [ -s "$dst" ]; then log "  cached: $dst"; return 0; fi
+    log "  fetching $url"
+    curl -fL --retry 3 --retry-delay 2 -o "$dst" "$url" \
+        || die "failed to download $url"
+}
+
+# render_template_force SRC DST [MODE]
+# Like render_template, but always updates DST when rendered content changes.
+render_template_force() {
+    local src=$1 dst=$2 mode=${3:-0644}
+    local tmp; tmp=$(mktemp)
+    envsubst < "$src" > "$tmp"
+    install_file "$tmp" "$dst" "$mode"
+    rm -f "$tmp"
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        *) die "unknown argument: $arg" ;;
+    esac
+done
+
+ENV_VPS_IP="${VPS_IP:-}"
+ENV_SS_PASSWORD="${SS_PASSWORD:-}"
+
+CFG="$ROOT/config.sh"
+[ -e "$CFG" ] || die "missing $CFG"
+. "$CFG"
+[ -n "$ENV_VPS_IP" ] && VPS_IP="$ENV_VPS_IP"
+[ -n "$ENV_SS_PASSWORD" ] && SS_PASSWORD="$ENV_SS_PASSWORD"
+
+# Fill defaults / generate if blank
+[ -n "${VPS_IP:-}" ] || die "set VPS_IP in config.sh or pass VPS_IP=... on the command line"
+require_ipv4 VPS_IP "$VPS_IP"
+[ -n "${SS_PASSWORD:-}" ] || die "set SS_PASSWORD in config.sh or pass SS_PASSWORD=... on the command line"
+: "${SS_PORT:=8388}"
+: "${SS_METHOD:=chacha20-ietf-poly1305}"
+: "${TALKMOBILE_APN:=talkmobile.co.uk}"
+: "${EE_APN:=eesecure}"
+: "${AP_SSID:=PiMPTCP}"
+: "${AP_SUBNET:=192.168.4}"
+: "${ROUTING_MODE:=full}"
+if [ -z "${AP_PSK:-}" ]; then
+    AP_PSK=$(generate_psk)
+    log "generated random AP_PSK (re-run preserves it via existing nmconnection)"
+fi
+export VPS_IP SS_PORT SS_METHOD SS_PASSWORD TALKMOBILE_APN EE_APN AP_SSID AP_SUBNET AP_PSK
+
+install_pi_packages() {
+    note "Pi packages"
+    echo iptables-persistent iptables-persistent/autosave_v4 boolean false | debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v6 boolean false | debconf-set-selections
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        network-manager modemmanager dnsmasq iptables-persistent curl vnstat \
+        usbutils gettext-base xz-utils openssl dnsutils mtr-tiny tcpdump \
+        netcat-openbsd tmux vim less jq tree htop git rsync ripgrep
+}
+
+install_custom_kernel() {
+    note "custom MPTCP kernel"
+    local image_deb headers_deb cache url_base boot_config
+    image_deb="linux-image-${KERNEL_VERSION}_${KERNEL_PKG_VERSION}_arm64.deb"
+    headers_deb="linux-headers-${KERNEL_VERSION}_${KERNEL_PKG_VERSION}_arm64.deb"
+    cache="/tmp/mptcp-kernel-${KERNEL_RELEASE}"
+    url_base="${KERNEL_REPO}/releases/download/${KERNEL_RELEASE}"
+    boot_config="/boot/firmware/config.txt"
+
+    install -d "$cache"
+    fetch_url "${url_base}/${image_deb}" "${cache}/${image_deb}"
+    fetch_url "${url_base}/${headers_deb}" "${cache}/${headers_deb}"
+    if [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
+       [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
+        log "kernel packages already installed (${KERNEL_PKG_VERSION})"
+    else
+        dpkg -i "${cache}/${image_deb}" "${cache}/${headers_deb}"
+    fi
+
+    install_file "/boot/vmlinuz-${KERNEL_VERSION}" /boot/firmware/kernel8-mptcp.img
+    install_file "/boot/initrd.img-${KERNEL_VERSION}" /boot/firmware/initramfs8-mptcp
+
+    note "/boot/firmware/config.txt — MPTCP kernel selection"
+    touch "$boot_config"
+    local need_kernel=0 need_initramfs=0
+    grep -qxF 'kernel=kernel8-mptcp.img' "$boot_config" || need_kernel=1
+    grep -qxF 'initramfs initramfs8-mptcp followkernel' "$boot_config" || need_initramfs=1
+    if [ "$need_kernel" -eq 1 ] || [ "$need_initramfs" -eq 1 ]; then
+        printf '\n[all]\n' >> "$boot_config"
+    fi
+    if [ "$need_kernel" -eq 1 ]; then
+        printf 'kernel=kernel8-mptcp.img\n' >> "$boot_config"
+        log "appended config.txt kernel selection"
+    else
+        log "config.txt already references kernel8-mptcp.img"
+    fi
+    if [ "$need_initramfs" -eq 1 ]; then
+        printf 'initramfs initramfs8-mptcp followkernel\n' >> "$boot_config"
+        log "appended config.txt initramfs selection"
+    else
+        log "config.txt already references initramfs8-mptcp"
+    fi
+}
+
+install_persistent_config() {
+    note "shadowsocks-rust binary"
+    install_ss_rust "${SS_RUST_PI_ARCH:-aarch64-unknown-linux-gnu}" sslocal
+
+    note "sysctl files"
+    install_file "$SRC/sysctl-99-mptcp.conf"   /etc/sysctl.d/99-mptcp.conf
+    install_file "$SRC/sysctl-99-forward.conf" /etc/sysctl.d/99-forward.conf
+
+    note "systemd units"
+    install_file "$SRC/mptcp-limits.service"        /etc/systemd/system/mptcp-limits.service
+    install_file "$SRC/shadowsocks-client.service"  /etc/systemd/system/shadowsocks-client.service
+    install_file "$SRC/mptcp-fulltunnel.service"    /etc/systemd/system/mptcp-fulltunnel.service
+    systemctl daemon-reload
+    systemctl enable mptcp-limits.service shadowsocks-client.service >/dev/null
+
+    note "udev + helpers"
+    install_file "$SRC/udev-99-alcatel-mbim.rules" /etc/udev/rules.d/99-alcatel-mbim.rules
+    install_file "$SRC/sbin-alcatel-mbim-fix"      /usr/local/sbin/alcatel-mbim-fix 0755
+
+    note "NetworkManager"
+    install_file "$SRC/NetworkManager.conf" /etc/NetworkManager/NetworkManager.conf
+    local dispatcher_tmp; dispatcher_tmp=$(mktemp)
+    sed "s|__VPS_IP__|$VPS_IP|g" "$SRC/networkmanager-dispatcher-99-mptcp-wwan" > "$dispatcher_tmp"
+    install_file "$dispatcher_tmp" /etc/NetworkManager/dispatcher.d/99-mptcp-wwan 0755
+    rm -f "$dispatcher_tmp"
+    install -d -m 0700 /etc/NetworkManager/system-connections
+
+    # eth0 lifeline — static 192.168.2.1/24, never-default, NOT an MPTCP subflow.
+    # This must always be present; without it NM auto-generates a DHCP "Wired
+    # connection 1" that hangs and the lifeline disappears.
+    install_file "$SRC/eth0.nmconnection" \
+        /etc/NetworkManager/system-connections/eth0.nmconnection 0600
+    # Drop NM's ephemeral autogenerated profile if it ever appeared, and the
+    # legacy netplan-generated YAML stubs that originally produced netplan-eth0.
+    rm -f "/etc/NetworkManager/system-connections/Wired connection 1.nmconnection"
+    rm -f /etc/netplan/90-NM-*.yaml
+
+    # Render nmconnection profiles. The keyfile plugin requires mode 0600.
+    [ -n "${TALKMOBILE_APN}" ] && render_template \
+        "$SRC/talkmobile-lte.nmconnection.template" \
+        /etc/NetworkManager/system-connections/talkmobile-lte.nmconnection 0600
+    [ -n "${EE_APN}" ] && render_template \
+        "$SRC/ee-lte.nmconnection.template" \
+        /etc/NetworkManager/system-connections/ee-lte.nmconnection 0600
+    render_template \
+        "$SRC/wlan0-AP.nmconnection.template" \
+        /etc/NetworkManager/system-connections/wlan0-AP.nmconnection 0600
+
+    note "dnsmasq"
+    install_file "$SRC/dnsmasq.conf" /etc/dnsmasq.conf
+    printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+    systemctl enable dnsmasq >/dev/null
+    systemctl reload dnsmasq 2>/dev/null || systemctl restart dnsmasq || true
+
+    note "iptables rules file"
+    install -d /etc/iptables
+    install_file "$SRC/iptables-rules.v4" /etc/iptables/rules.v4
+    systemctl enable netfilter-persistent >/dev/null
+
+    note "/etc/shadowsocks/client.json"
+    install -d /etc/shadowsocks
+    render_template_force "$SRC/shadowsocks-client.json.template" /etc/shadowsocks/client.json 0644
+
+    note "vnstat"
+    systemctl enable vnstat >/dev/null 2>&1 || true
+
+    note "routing mode: ${ROUTING_MODE}"
+    case "$ROUTING_MODE" in
+        full)
+            systemctl enable mptcp-fulltunnel.service >/dev/null
+            log "mptcp-fulltunnel ENABLED for next boot — all traffic via tun0"
+            ;;
+        split)
+            systemctl disable mptcp-fulltunnel.service >/dev/null 2>&1 || true
+            log "split mode set for next boot — default routing on wlan/wwan"
+            ;;
+        *)
+            warn "unknown ROUTING_MODE='$ROUTING_MODE' — leaving routing as-is"
+            ;;
+    esac
+}
+
+install_pi_packages
+install_custom_kernel
+install_persistent_config
+
+cat <<EOF
+
+Pre-reboot install complete. AP credentials (save these):
+  SSID:      ${AP_SSID}
+  PSK:       (in /etc/NetworkManager/system-connections/wlan0-AP.nmconnection)
+  Subnet:    ${AP_SUBNET}.0/24
+
+Routing mode: ${ROUTING_MODE}
+  - To switch: edit ROUTING_MODE in config.sh and re-run, OR
+    sudo systemctl start/stop mptcp-fulltunnel.service
+
+Reboot now to switch kernels and let boot-time
+services apply sysctl, iptables, NetworkManager, MPTCP limits, and
+shadowsocks-client:
+  sudo reboot
+EOF

@@ -1,0 +1,6 @@
+# Append/merge into /boot/firmware/config.txt
+# This selects the custom MPTCP-redundant kernel + initramfs.
+
+[all]
+kernel=kernel8-mptcp.img
+initramfs initramfs8-mptcp followkernel

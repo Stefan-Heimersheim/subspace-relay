@@ -1,0 +1,21 @@
+{
+    "_comment": "Rendered by pi-install.sh from config.sh plus command-line environment. mptcp:true MUST stay at top level — nesting it inside servers is silently ignored and downgrades to plain TCP.",
+    "mptcp": true,
+    "servers": [
+        {
+            "server": "${VPS_IP}",
+            "server_port": ${SS_PORT},
+            "password": "${SS_PASSWORD}",
+            "method": "${SS_METHOD}",
+            "mode": "tcp_and_udp"
+        }
+    ],
+    "locals": [
+        {
+            "protocol": "tun",
+            "tun_interface_name": "tun0",
+            "tun_interface_address": "10.255.0.1/30",
+            "mode": "tcp_and_udp"
+        }
+    ]
+}

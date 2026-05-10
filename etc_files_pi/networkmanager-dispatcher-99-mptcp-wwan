@@ -1,0 +1,48 @@
+#!/bin/bash
+# NetworkManager dispatcher for the wwan modems.
+# - On `up`: add MPTCP subflow endpoint, source-routing rule, table default
+#   route, and a per-interface VPS bypass route so sslocal's traffic to the
+#   VPS does NOT go through tun0 (would be a routing loop).
+# - On `down`/`pre-down`: undo the above.
+#
+# We do NOT restart shadowsocks-client on `up`: the kernel opens the new
+# subflow on the existing MPTCP socket as soon as the endpoint is added,
+# so a healthy tunnel does not need to be disturbed. The boot race
+# (sslocal coming up before any wwan has an IP) is handled by
+# Restart=always on the unit.
+#
+# A flock around the body serializes concurrent invocations: NetworkManager
+# fires `up` multiple times in quick succession (connectivity-change,
+# dhcp4-change, …); without locking, two flush+add pairs race and leave
+# duplicate `ip rule` entries.
+
+IFACE=$1
+ACTION=$2
+
+[[ "$IFACE" != wwan* ]] && exit 0
+
+LOCK="/run/mptcp-wwan-${IFACE}.lock"
+exec 9>"$LOCK"
+flock 9 || exit 0
+
+IP=$(ip -4 addr show "$IFACE" 2>/dev/null | awk "/inet / {split(\$2,a,\"/\"); print a[1]}")
+GW=$(ip route show dev "$IFACE" 2>/dev/null | awk "/default/ {print \$3}")
+TABLE=10${IFACE#wwan}                  # wwan0 → 100, wwan1 → 101
+METRIC=$((700 + ${IFACE#wwan}))        # wwan0 → 700, wwan1 → 701
+VPS=__VPS_IP__
+
+case "$ACTION" in
+  up)
+    [[ -z "$IP" || -z "$GW" ]] && exit 0
+    while ip rule del table "$TABLE" 2>/dev/null; do : ; done
+    ip rule add from "$IP" table "$TABLE" 2>/dev/null || true
+    ip route replace default via "$GW" dev "$IFACE" table "$TABLE" 2>/dev/null || true
+    ip mptcp endpoint add "$IP" dev "$IFACE" subflow 2>/dev/null || true
+    ip route replace "$VPS" via "$GW" dev "$IFACE" metric "$METRIC" 2>/dev/null || true
+    ;;
+  down|pre-down)
+    ip mptcp endpoint delete dev "$IFACE" 2>/dev/null || true
+    while ip rule del table "$TABLE" 2>/dev/null; do : ; done
+    ip route del "$VPS" dev "$IFACE" 2>/dev/null || true
+    ;;
+esac
