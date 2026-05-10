@@ -34,4 +34,5 @@ and then reboot.
 
 ## Work in progress
 - Feature: Access point setup (work in progress). Currently only connecting to the router via ethernet is supported.
-- Bug: Sometimes the connection breaks, and/or DNS fails, and/or the VPS shows `udp failed to send back 1420–1472 bytes ... Message too long` errors.
+- Bug: Sometimes the connection breaks, and/or DNS fails, and/or the VPS shows `udp failed to send back 1420–1472 bytes ... Message too long` errors. Currently debugging this with a lower MTU setting.
+- Feature: Store `SS_PASSWORD` and `VPS_IP` in a specific file when running the install, so the script can be re-run later. (Or read it off the relevant files in `/etc`.)
