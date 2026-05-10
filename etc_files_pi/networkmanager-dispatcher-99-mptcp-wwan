@@ -1,8 +1,8 @@
 #!/bin/bash
 # NetworkManager dispatcher for the wwan modems.
 # - On `up`: add MPTCP subflow endpoint, source-routing rule, table default
-#   route, and a per-interface VPS bypass route so sslocal's traffic to the
-#   VPS does NOT go through tun0 (would be a routing loop).
+#   route, and a VPS bypass route so sslocal's traffic to the VPS does NOT go
+#   through tun0 (would be a routing loop).
 # - On `down`/`pre-down`: undo the above.
 #
 # We do NOT restart shadowsocks-client on `up`: the kernel opens the new
@@ -11,25 +11,57 @@
 # (sslocal coming up before any wwan has an IP) is handled by
 # Restart=always on the unit.
 #
-# A flock around the body serializes concurrent invocations: NetworkManager
-# fires `up` multiple times in quick succession (connectivity-change,
-# dhcp4-change, …); without locking, two flush+add pairs race and leave
-# duplicate `ip rule` entries.
+# A flock around the body serializes concurrent invocations. NetworkManager
+# fires events for multiple interfaces in quick succession; without locking,
+# route and rule updates can race.
 
 IFACE=$1
 ACTION=$2
 
 [[ "$IFACE" != wwan* ]] && exit 0
 
-LOCK="/run/mptcp-wwan-${IFACE}.lock"
+LOCK="/run/mptcp-wwan.lock"
 exec 9>"$LOCK"
 flock 9 || exit 0
 
 IP=$(ip -4 addr show "$IFACE" 2>/dev/null | awk "/inet / {split(\$2,a,\"/\"); print a[1]}")
-GW=$(ip route show dev "$IFACE" 2>/dev/null | awk "/default/ {print \$3}")
+GW=${IP4_GATEWAY:-}
+[ -n "$GW" ] || GW=$(ip route show dev "$IFACE" 2>/dev/null | awk "/default/ {print \$3; exit}")
+[ -n "$GW" ] || GW=$(nmcli -g IP4.GATEWAY device show "$IFACE" 2>/dev/null | awk 'NF {print; exit}')
 TABLE=10${IFACE#wwan}                  # wwan0 → 100, wwan1 → 101
 METRIC=$((700 + ${IFACE#wwan}))        # wwan0 → 700, wwan1 → 701
 VPS=__VPS_IP__
+
+ensure_vps_bypass_route() {
+  local current
+  current=$(ip -4 route get "$VPS" 2>/dev/null || true)
+
+  # If sslocal already reaches the VPS through a wwan route, leave that route
+  # in place. Replacing it during hotplug can briefly disturb the existing
+  # MPTCP connection; the new modem can still join via its source-route table.
+  if printf '%s\n' "$current" | grep -q ' dev wwan'; then
+    return 0
+  fi
+
+  ip route replace "$VPS" via "$GW" dev "$IFACE" metric "$METRIC" 2>/dev/null || true
+}
+
+restore_vps_bypass_route() {
+  local candidate_path candidate candidate_table candidate_metric candidate_gw
+
+  for candidate_path in /sys/class/net/wwan*; do
+    [ -e "$candidate_path" ] || continue
+    candidate=${candidate_path##*/}
+    [ "$candidate" = "$IFACE" ] && continue
+    candidate_table=10${candidate#wwan}
+    candidate_metric=$((700 + ${candidate#wwan}))
+    candidate_gw=$(ip -4 route show table "$candidate_table" default dev "$candidate" 2>/dev/null | awk '/default/ {print $3; exit}')
+    [ -n "$candidate_gw" ] || continue
+
+    ip route replace "$VPS" via "$candidate_gw" dev "$candidate" metric "$candidate_metric" 2>/dev/null || true
+    return 0
+  done
+}
 
 case "$ACTION" in
   up)
@@ -38,11 +70,12 @@ case "$ACTION" in
     ip rule add from "$IP" table "$TABLE" 2>/dev/null || true
     ip route replace default via "$GW" dev "$IFACE" table "$TABLE" 2>/dev/null || true
     ip mptcp endpoint add "$IP" dev "$IFACE" subflow 2>/dev/null || true
-    ip route replace "$VPS" via "$GW" dev "$IFACE" metric "$METRIC" 2>/dev/null || true
+    ensure_vps_bypass_route
     ;;
   down|pre-down)
     ip mptcp endpoint delete dev "$IFACE" 2>/dev/null || true
     while ip rule del table "$TABLE" 2>/dev/null; do : ; done
     ip route del "$VPS" dev "$IFACE" 2>/dev/null || true
+    restore_vps_bypass_route
     ;;
 esac

@@ -9,9 +9,12 @@ apn=${TALKMOBILE_APN}
 
 [ipv4]
 method=auto
+never-default=true
+route-metric=700
 
 [ipv6]
 addr-gen-mode=default
 method=auto
+never-default=true
 
 [proxy]

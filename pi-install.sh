@@ -165,10 +165,10 @@ install_persistent_config() {
     rm -f /etc/netplan/90-NM-*.yaml
 
     # Render nmconnection profiles. The keyfile plugin requires mode 0600.
-    [ -n "${TALKMOBILE_APN}" ] && render_template \
+    [ -n "${TALKMOBILE_APN}" ] && render_template_force \
         "$SRC/talkmobile-lte.nmconnection.template" \
         /etc/NetworkManager/system-connections/talkmobile-lte.nmconnection 0600
-    [ -n "${EE_APN}" ] && render_template \
+    [ -n "${EE_APN}" ] && render_template_force \
         "$SRC/ee-lte.nmconnection.template" \
         /etc/NetworkManager/system-connections/ee-lte.nmconnection 0600
     render_template \
