@@ -33,4 +33,5 @@ sudo env SS_PASSWORD='...' VPS_IP='...' ./pi-install.sh
 and then reboot.
 
 ## Work in progress
-- Access point setup (work in progress). Currently only connecting to the router via ethernet is supported.
+- Feature: Access point setup (work in progress). Currently only connecting to the router via ethernet is supported.
+- Bug: Sometimes the connection breaks, and/or DNS fails, and/or the VPS shows `udp failed to send back 1420–1472 bytes ... Message too long` errors.
