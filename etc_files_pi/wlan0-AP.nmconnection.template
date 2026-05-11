@@ -2,7 +2,7 @@
 id=wlan0-AP
 type=wifi
 interface-name=wlan0
-autoconnect=false
+autoconnect=true
 
 [wifi]
 mode=ap
