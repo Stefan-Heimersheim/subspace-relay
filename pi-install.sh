@@ -178,6 +178,12 @@ install_persistent_config() {
     render_template \
         "$SRC/wlan0-AP.nmconnection.template" \
         /etc/NetworkManager/system-connections/wlan0-AP.nmconnection 0600
+    for i in $(seq 1 8); do
+        export LTE_IFACE="eth${i}" LTE_ID="lte-eth${i}" LTE_METRIC=$((699 + i))
+        render_template_force \
+            "$SRC/eth-lte.nmconnection.template" \
+            "/etc/NetworkManager/system-connections/lte-eth${i}.nmconnection" 0600
+    done
 
     note "dnsmasq"
     install_file "$SRC/dnsmasq.conf" /etc/dnsmasq.conf

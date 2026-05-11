@@ -56,7 +56,8 @@ route can still point at `tun0`.
 ## Service ownership
 
 NetworkManager owns physical and client-facing link configuration on the Pi:
-`eth0`, LTE modem profiles, and the optional `wlan0` AP profile. The LTE
+`eth0`, LTE modem profiles, the Ethernet-like modem profiles `eth1` through
+`eth8`, and the optional `wlan0` AP profile. The LTE and Ethernet-like modem
 profiles are marked `never-default=true`; they supply addresses and gateways for
 their own source-routing tables, but they do not become the ordinary system
 default route. `eth0` is a static client LAN and is explicitly not an MPTCP
@@ -88,12 +89,13 @@ adds the two half-default routes via `tun0`; when stopped, it removes them. With
 `ROUTING_MODE=split`, this service is disabled and only traffic explicitly sent
 through `tun0` uses the tunnel.
 
-`networkmanager-dispatcher-99-mptcp-wwan` owns hotplug behavior for LTE
-interfaces. On `wwan*` up events it adds an MPTCP subflow endpoint, creates an
-`ip rule` for traffic sourced from that modem address, installs that modem's
-default route into its per-interface table, and maintains the direct VPS bypass
-route. On down events it removes the endpoint/rule and tries to move the bypass
-route to another available `wwan*`.
+`networkmanager-dispatcher-99-mptcp-wwan` owns hotplug behavior for modem
+interfaces. On `wwan*` and `eth1` through `eth8` up events it adds an MPTCP
+subflow endpoint, creates an `ip rule` for traffic sourced from that modem
+address, installs that modem's default route into its per-interface table, and
+maintains the direct VPS bypass route. On down events it removes the
+endpoint/rule and tries to move the bypass route to another available modem
+link.
 
 iptables owns NAT. On the Pi, traffic leaving `tun0`, `wwan0`, `wwan1`, or
 `wlan0` is masqueraded. On the VPS, decapsulated traffic leaving the VPS WAN
@@ -133,17 +135,20 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   with gateway `192.168.2.1` and public DNS options.
 - `etc_files_pi/ee-lte.nmconnection.template` - NetworkManager GSM profile for
   the second LTE modem (`cdc-wdm1`) using the EE APN and route metric `701`.
+- `etc_files_pi/eth-lte.nmconnection.template` - NetworkManager Ethernet
+  profile template for modem links `eth1` through `eth8`.
 - `etc_files_pi/eth0.nmconnection` - NetworkManager profile for the wired
   client LAN at `192.168.2.1/24`, with no default route and no MPTCP flags.
 - `etc_files_pi/iptables-rules.v4` - persistent Pi NAT rules for `tun0`,
-  `wwan0`, `wwan1`, and `wlan0`.
+  `wwan0`, `wwan1`, `eth1` through `eth8`, and `wlan0`.
 - `etc_files_pi/mptcp-fulltunnel.service` - systemd unit that adds/removes
   full-tunnel half-default routes through `tun0`.
 - `etc_files_pi/mptcp-limits.service` - systemd one-shot that sets MPTCP subflow
   and accepted-address limits on boot.
 - `etc_files_pi/networkmanager-dispatcher-99-mptcp-wwan` - NetworkManager
-  dispatcher hook that manages MPTCP endpoints, per-LTE source routing, and the
-  direct VPS bypass route for `wwan*` interfaces.
+  dispatcher hook that manages MPTCP endpoints, per-modem source routing, and
+  the direct VPS bypass route for `wwan*` and `eth1` through `eth8`
+  interfaces.
 - `etc_files_pi/sbin-alcatel-mbim-fix` - helper run by udev to rebind the
   affected Alcatel modem interface to `cdc_mbim`.
 - `etc_files_pi/shadowsocks-client.json.template` - Pi `sslocal` TUN-mode
