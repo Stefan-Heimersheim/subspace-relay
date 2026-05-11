@@ -74,7 +74,7 @@ interface.
 `shadowsocks-client.service` owns the Pi tunnel process. It starts `sslocal`,
 which creates `tun0`, enables `tcp_and_udp` tunnel mode, and uses top-level
 `mptcp=true` so the TCP connection to the VPS is an MPTCP connection. It also
-sets `tun0` MTU to `1400` to avoid oversized UDP datagrams after tunnel
+sets `tun0` MTU (conservatively) to `1200` to avoid oversized UDP datagrams after tunnel
 overhead. `shadowsocks-server.service` owns the matching VPS-side `ssserver`
 process and also runs with `tcp_and_udp` and `mptcp=true`.
 
@@ -171,5 +171,5 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
 
 ## Work in progress
 - Feature: Access point setup (work in progress). Currently only connecting to the router via ethernet is supported.
-- Bug: Sometimes the connection breaks, and/or DNS fails, and/or the VPS shows `udp failed to send back 1420–1472 bytes ... Message too long` errors. Currently debugging this with a lower MTU setting.
+- Bug being monitored: Previously the connection intermittently broke. This may have been related to `udp failed to send back 1420–1472 bytes ... Message too long` errors on the VPS. The message-too-long errors seem to have been fixed by reducing MTU from 1400 to 1200.
 - Feature: Store `SS_PASSWORD` and `VPS_IP` in a specific file when running the install, so the script can be re-run later. (Or read it off the relevant files in `/etc`.)

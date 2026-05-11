@@ -9,7 +9,7 @@ ExecStart=/usr/local/bin/sslocal -c /etc/shadowsocks/client.json
 # 1500-byte wwan outer path. Without this, QUIC datagrams >~1430 bytes
 # from CDNs trigger EMSGSIZE on the VPS (UDP has no MSS-clamping
 # equivalent). See DIARY_2026-05-09T18:47.md.
-ExecStartPost=/bin/sh -c 'for i in $(seq 20); do ip link show tun0 >/dev/null 2>&1 && break; sleep 0.25; done; ip link set dev tun0 mtu 1400'
+ExecStartPost=/bin/sh -c 'for i in $(seq 20); do ip link show tun0 >/dev/null 2>&1 && break; sleep 0.25; done; ip link set dev tun0 mtu 1200'
 Restart=always
 RestartSec=5
 
