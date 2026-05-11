@@ -176,7 +176,3 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
 - `etc_files_vps/sysctl-99-forward.conf` - enables IPv4 forwarding on the VPS.
 - `etc_files_vps/sysctl-99-mptcp.conf` - enables MPTCP on the VPS.
 
-## Work in progress
-- Feature: Access point setup (work in progress). Currently only connecting to the router via ethernet is supported.
-- Bug being monitored: Previously the connection intermittently broke. This may have been related to `udp failed to send back 1420–1472 bytes ... Message too long` errors on the VPS. The message-too-long errors seem to have been fixed by reducing MTU from 1400 to 1200.
-- Feature: Store `SS_PASSWORD` and `VPS_IP` in a specific file when running the install, so the script can be re-run later. (Or read it off the relevant files in `/etc`.)
