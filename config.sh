@@ -19,6 +19,7 @@ SS_RUST_VPS_ARCH="x86_64-unknown-linux-gnu"
 # SIM APNs. Empty string disables installing that profile.
 TALKMOBILE_APN="talkmobile.co.uk"
 EE_APN="eesecure"   # NOT "everywhere" — see CLAUDE.md
+VODAFONE_APN="wap.vodafone.co.uk"
 
 # WiFi access point. Generated random PSK if left blank.
 AP_SSID="PiMPTCP"

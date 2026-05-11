@@ -62,6 +62,7 @@ require_ipv4 VPS_IP "$VPS_IP"
 : "${SS_METHOD:=chacha20-ietf-poly1305}"
 : "${TALKMOBILE_APN:=talkmobile.co.uk}"
 : "${EE_APN:=eesecure}"
+: "${VODAFONE_APN:=wap.vodafone.co.uk}"
 : "${AP_SSID:=PiMPTCP}"
 : "${AP_SUBNET:=192.168.4}"
 : "${ROUTING_MODE:=full}"
@@ -69,7 +70,7 @@ if [ -z "${AP_PSK:-}" ]; then
     AP_PSK=$(generate_psk)
     log "generated random AP_PSK (re-run preserves it via existing nmconnection)"
 fi
-export VPS_IP SS_PORT SS_METHOD SS_PASSWORD TALKMOBILE_APN EE_APN AP_SSID AP_SUBNET AP_PSK
+export VPS_IP SS_PORT SS_METHOD SS_PASSWORD TALKMOBILE_APN EE_APN VODAFONE_APN AP_SSID AP_SUBNET AP_PSK
 
 install_pi_packages() {
     note "Pi packages"
@@ -171,6 +172,9 @@ install_persistent_config() {
     [ -n "${EE_APN}" ] && render_template_force \
         "$SRC/ee-lte.nmconnection.template" \
         /etc/NetworkManager/system-connections/ee-lte.nmconnection 0600
+    [ -n "${VODAFONE_APN}" ] && render_template_force \
+        "$SRC/vodafone-lte.nmconnection.template" \
+        /etc/NetworkManager/system-connections/vodafone-lte.nmconnection 0600
     render_template \
         "$SRC/wlan0-AP.nmconnection.template" \
         /etc/NetworkManager/system-connections/wlan0-AP.nmconnection 0600
