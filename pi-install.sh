@@ -20,6 +20,26 @@ generate_psk() {
     openssl rand -base64 18 | tr -d '+/='
 }
 
+read_shadowsocks_client_config() {
+    local path=$1 key=$2
+    [ -s "$path" ] || return 1
+    if command -v jq >/dev/null 2>&1; then
+        jq -er "$key // empty" "$path" 2>/dev/null
+        return
+    fi
+    case "$key" in
+        .servers[0].server)
+            sed -n 's/^[[:space:]]*"server"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$path" | head -n 1
+            ;;
+        .servers[0].password)
+            sed -n 's/^[[:space:]]*"password"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$path" | head -n 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 # fetch_url URL DST — download with retry, idempotent if file exists & non-empty.
 fetch_url() {
     local url=$1 dst=$2
@@ -54,10 +74,16 @@ CFG="$ROOT/config.sh"
 [ -n "$ENV_VPS_IP" ] && VPS_IP="$ENV_VPS_IP"
 [ -n "$ENV_SS_PASSWORD" ] && SS_PASSWORD="$ENV_SS_PASSWORD"
 
-# Fill defaults / generate if blank
-[ -n "${VPS_IP:-}" ] || die "set VPS_IP in config.sh or pass VPS_IP=... on the command line"
+# Fill defaults / recover from live config if blank.
+if [ -z "${VPS_IP:-}" ]; then
+    VPS_IP="$(read_shadowsocks_client_config /etc/shadowsocks/client.json '.servers[0].server' || true)"
+fi
+if [ -z "${SS_PASSWORD:-}" ]; then
+    SS_PASSWORD="$(read_shadowsocks_client_config /etc/shadowsocks/client.json '.servers[0].password' || true)"
+fi
+[ -n "${VPS_IP:-}" ] || die "set VPS_IP in config.sh, pass VPS_IP=... on the command line, or keep /etc/shadowsocks/client.json on the Pi"
 require_ipv4 VPS_IP "$VPS_IP"
-[ -n "${SS_PASSWORD:-}" ] || die "set SS_PASSWORD in config.sh or pass SS_PASSWORD=... on the command line"
+[ -n "${SS_PASSWORD:-}" ] || die "set SS_PASSWORD in config.sh, pass SS_PASSWORD=... on the command line, or keep /etc/shadowsocks/client.json on the Pi"
 : "${SS_PORT:=8388}"
 : "${SS_METHOD:=chacha20-ietf-poly1305}"
 : "${TALKMOBILE_APN:=talkmobile.co.uk}"
@@ -86,20 +112,23 @@ install_pi_packages() {
 
 install_custom_kernel() {
     note "custom MPTCP kernel"
-    local image_deb headers_deb cache url_base boot_config
+    local image_deb headers_deb cache url_base boot_config running_kernel
     image_deb="linux-image-${KERNEL_VERSION}_${KERNEL_PKG_VERSION}_arm64.deb"
     headers_deb="linux-headers-${KERNEL_VERSION}_${KERNEL_PKG_VERSION}_arm64.deb"
     cache="/tmp/mptcp-kernel-${KERNEL_RELEASE}"
     url_base="${KERNEL_REPO}/releases/download/${KERNEL_RELEASE}"
     boot_config="/boot/firmware/config.txt"
+    running_kernel="$(uname -a)"
 
-    install -d "$cache"
-    fetch_url "${url_base}/${image_deb}" "${cache}/${image_deb}"
-    fetch_url "${url_base}/${headers_deb}" "${cache}/${headers_deb}"
-    if [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
-       [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
-        log "kernel packages already installed (${KERNEL_PKG_VERSION})"
+    if printf '%s' "$running_kernel" | grep -Fq "$KERNEL_VERSION"; then
+        log "running kernel already matches ${KERNEL_VERSION}; skipping kernel download and package install"
+    elif [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
+         [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
+        log "kernel packages already installed (${KERNEL_PKG_VERSION}); skipping kernel download"
     else
+        install -d "$cache"
+        fetch_url "${url_base}/${image_deb}" "${cache}/${image_deb}"
+        fetch_url "${url_base}/${headers_deb}" "${cache}/${headers_deb}"
         dpkg -i "${cache}/${image_deb}" "${cache}/${headers_deb}"
     fi
 
