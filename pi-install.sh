@@ -161,6 +161,11 @@ install_persistent_config() {
     note "shadowsocks-rust binary"
     install_ss_rust "${SS_RUST_PI_ARCH:-aarch64-unknown-linux-gnu}" sslocal
 
+    note "journald"
+    install -d /etc/systemd/journald.conf.d
+    install_file "$SRC/journald-99-persistent.conf" /etc/systemd/journald.conf.d/99-persistent.conf
+    systemctl restart systemd-journald
+
     note "sysctl files"
     install_file "$SRC/sysctl-99-mptcp.conf"   /etc/sysctl.d/99-mptcp.conf
     install_file "$SRC/sysctl-99-forward.conf" /etc/sysctl.d/99-forward.conf

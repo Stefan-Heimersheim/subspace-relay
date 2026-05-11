@@ -141,6 +141,8 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   client LAN at `192.168.2.1/24`, with no default route and no MPTCP flags.
 - `etc_files_pi/iptables-rules.v4` - persistent Pi NAT rules for `tun0`,
   `wwan0`, `wwan1`, `eth1` through `eth8`, and `wlan0`.
+- `etc_files_pi/journald-99-persistent.conf` - enables persistent systemd
+  journal storage so logs survive reboots.
 - `etc_files_pi/mptcp-fulltunnel.service` - systemd unit that adds/removes
   full-tunnel half-default routes through `tun0`.
 - `etc_files_pi/mptcp-limits.service` - systemd one-shot that sets MPTCP subflow
