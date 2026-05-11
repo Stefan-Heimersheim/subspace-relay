@@ -3,6 +3,7 @@ id=vodafone-lte
 type=gsm
 interface-name=cdc-wdm0
 autoconnect=true
+autoconnect-priority=40
 
 [gsm]
 apn=${VODAFONE_APN}
@@ -11,7 +12,7 @@ auto-config=false
 [ipv4]
 method=auto
 never-default=true
-route-metric=702
+route-metric=700
 
 [ipv6]
 addr-gen-mode=default

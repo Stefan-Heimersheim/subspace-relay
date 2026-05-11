@@ -106,6 +106,7 @@ install_pi_packages() {
     DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         network-manager modemmanager dnsmasq iptables-persistent curl vnstat \
+        mobile-broadband-provider-info \
         usbutils gettext-base xz-utils openssl dnsutils mtr-tiny tcpdump \
         netcat-openbsd tmux vim less jq tree htop git rsync ripgrep
 }
@@ -209,11 +210,13 @@ install_persistent_config() {
     [ -n "${VODAFONE_APN}" ] && render_template_force \
         "$SRC/vodafone-lte.nmconnection.template" \
         /etc/NetworkManager/system-connections/vodafone-lte.nmconnection 0600
+    install_file "$SRC/auto-lte.nmconnection" \
+        /etc/NetworkManager/system-connections/auto-lte.nmconnection 0600
     render_template \
         "$SRC/wlan0-AP.nmconnection.template" \
         /etc/NetworkManager/system-connections/wlan0-AP.nmconnection 0600
     for i in $(seq 1 8); do
-        export LTE_IFACE="eth${i}" LTE_ID="lte-eth${i}" LTE_METRIC=$((699 + i))
+        export LTE_IFACE="eth${i}" LTE_ID="lte-eth${i}"
         render_template_force \
             "$SRC/eth-lte.nmconnection.template" \
             "/etc/NetworkManager/system-connections/lte-eth${i}.nmconnection" 0600

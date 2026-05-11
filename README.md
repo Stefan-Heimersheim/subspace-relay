@@ -61,7 +61,8 @@ NetworkManager owns physical and client-facing link configuration on the Pi:
 profiles are marked `never-default=true`; they supply addresses and gateways for
 their own source-routing tables, but they do not become the ordinary system
 default route. `eth0` is a static client LAN and is explicitly not an MPTCP
-subflow endpoint.
+subflow endpoint. `auto-lte` is the preferred GSM profile; APN-specific
+profiles are fallbacks.
 
 `dnsmasq` owns DHCP for the wired client LAN on `eth0`. It gives clients
 addresses in `192.168.2.0/24`, default gateway `192.168.2.1`, and public DNS
@@ -129,12 +130,14 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   selected routing mode for next boot.
 - `etc_files_pi/NetworkManager.conf` - disables NetworkManager DNS/resolv.conf
   management and enables the keyfile plugin used by the connection profiles.
+- `etc_files_pi/auto-lte.nmconnection` - preferred generic GSM profile using
+  NetworkManager provider auto-configuration.
 - `etc_files_pi/boot-config.txt.snippet` - reference snippet for selecting the
   custom Pi kernel and initramfs in `/boot/firmware/config.txt`.
 - `etc_files_pi/dnsmasq.conf` - DHCP-only configuration for clients on `eth0`
   with gateway `192.168.2.1` and public DNS options.
-- `etc_files_pi/ee-lte.nmconnection.template` - NetworkManager GSM profile for
-  the second LTE modem (`cdc-wdm1`) using the EE APN and route metric `701`.
+- `etc_files_pi/ee-lte.nmconnection.template` - EE GSM fallback profile for
+  `cdc-wdm1`.
 - `etc_files_pi/eth-lte.nmconnection.template` - NetworkManager Ethernet
   profile template for modem links `eth1` through `eth8`.
 - `etc_files_pi/eth0.nmconnection` - NetworkManager profile for the wired
@@ -160,11 +163,12 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
 - `etc_files_pi/sysctl-99-forward.conf` - enables IPv4 forwarding on the Pi.
 - `etc_files_pi/sysctl-99-mptcp.conf` - enables MPTCP on the Pi and selects the
   redundant scheduler.
-- `etc_files_pi/talkmobile-lte.nmconnection.template` - NetworkManager GSM
-  profile for the first LTE modem (`cdc-wdm0`) using the Talkmobile APN and
-  route metric `700`.
+- `etc_files_pi/talkmobile-lte.nmconnection.template` - Talkmobile GSM fallback
+  profile for `cdc-wdm0`.
 - `etc_files_pi/udev-99-alcatel-mbim.rules` - udev rule that detects the
   affected Alcatel USB modem interface and runs the MBIM rebind helper.
+- `etc_files_pi/vodafone-lte.nmconnection.template` - Vodafone GSM fallback
+  profile for `cdc-wdm0`.
 - `etc_files_pi/wlan0-AP.nmconnection.template` - optional NetworkManager WiFi
   AP profile using `${AP_SSID}`, `${AP_PSK}`, and `${AP_SUBNET}.1/24`.
 - `etc_files_vps/iptables-rules.v4` - persistent VPS NAT rule template; the
@@ -175,4 +179,3 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   Shadowsocks server.
 - `etc_files_vps/sysctl-99-forward.conf` - enables IPv4 forwarding on the VPS.
 - `etc_files_vps/sysctl-99-mptcp.conf` - enables MPTCP on the VPS.
-

@@ -1,12 +1,12 @@
 [connection]
-id=talkmobile-lte
+id=auto-lte
 type=gsm
-interface-name=cdc-wdm0
 autoconnect=true
-autoconnect-priority=40
+autoconnect-priority=50
+multi-connect=multiple
 
 [gsm]
-apn=${TALKMOBILE_APN}
+auto-config=true
 
 [ipv4]
 method=auto

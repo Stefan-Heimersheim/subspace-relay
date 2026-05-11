@@ -3,15 +3,16 @@ id=${LTE_ID}
 type=ethernet
 interface-name=${LTE_IFACE}
 autoconnect=true
+autoconnect-priority=50
 never-default=true
-route-metric=${LTE_METRIC}
+route-metric=700
 
 [ethernet]
 
 [ipv4]
 method=auto
 never-default=true
-route-metric=${LTE_METRIC}
+route-metric=700
 
 [ipv6]
 method=auto
