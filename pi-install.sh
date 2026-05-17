@@ -59,12 +59,6 @@ render_template_force() {
     rm -f "$tmp"
 }
 
-for arg in "$@"; do
-    case "$arg" in
-        *) die "unknown argument: $arg" ;;
-    esac
-done
-
 ENV_VPS_IP="${VPS_IP:-}"
 ENV_SS_PASSWORD="${SS_PASSWORD:-}"
 
