@@ -1,4 +1,4 @@
-# Optional defaults for vps-install.sh, pi-install.sh, and pi-post-reboot.sh. You can leave this
+# Optional defaults for vps-install.sh and pi-install.sh. You can leave this
 # file as-is: vps-install.sh generates SS_PASSWORD and VPS_IP, then prints the
 # exact pi-install.sh command to run on the Pi.
 
@@ -25,11 +25,6 @@ VODAFONE_APN="wap.vodafone.co.uk"
 AP_SSID="PiMPTCP"
 AP_PSK=""           # leave blank for openssl-generated random; will be saved into the .nmconnection
 AP_SUBNET="192.168.4"  # AP serves $AP_SUBNET.0/24 with $AP_SUBNET.1 as the Pi
-
-# Routing mode: "full" (half-default routes via tun0 capture all
-# traffic — the default on the live Pi since 2026-05-09) or "split"
-# (default to wlan/wwan; tunnel only for explicit --interface tun0).
-ROUTING_MODE="full"
 
 # ------- VPS-only -------
 # WAN interface name (auto-detected if empty).

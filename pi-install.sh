@@ -1,10 +1,9 @@
 #!/bin/bash
 # Pi pre-reboot install — fully idempotent. Reads ./config.sh for defaults;
-# VPS_IP and SS_PASSWORD can be passed on the command line from vps-install.sh.
+# VPS_IP and SS_PASSWORD can be passed in the environment from vps-install.sh.
 # Fetches sslocal, renders templates, and installs persistent boot-time config.
 #
 # Run on the Pi as root: `sudo ./pi-install.sh`
-# After reboot, optionally run: `sudo ./pi-post-reboot.sh`
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$ROOT/etc_files_pi"
@@ -168,8 +167,11 @@ install_persistent_config() {
     note "systemd units"
     install_file "$SRC/mptcp-limits.service"        /etc/systemd/system/mptcp-limits.service
     install_file "$SRC/shadowsocks-client.service"  /etc/systemd/system/shadowsocks-client.service
-    install_file "$SRC/mptcp-fulltunnel.service"    /etc/systemd/system/mptcp-fulltunnel.service
     systemctl daemon-reload
+    systemctl disable mptcp-fulltunnel.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/mptcp-fulltunnel.service
+    systemctl daemon-reload
+    systemctl enable NetworkManager-wait-online.service >/dev/null 2>&1 || true
     systemctl enable mptcp-limits.service shadowsocks-client.service >/dev/null
 
     note "udev + helpers"
@@ -233,21 +235,6 @@ install_persistent_config() {
 
     note "vnstat"
     systemctl enable vnstat >/dev/null 2>&1 || true
-
-    note "routing mode: ${ROUTING_MODE}"
-    case "$ROUTING_MODE" in
-        full)
-            systemctl enable mptcp-fulltunnel.service >/dev/null
-            log "mptcp-fulltunnel ENABLED for next boot — all traffic via tun0"
-            ;;
-        split)
-            systemctl disable mptcp-fulltunnel.service >/dev/null 2>&1 || true
-            log "split mode set for next boot — default routing on wlan/wwan"
-            ;;
-        *)
-            warn "unknown ROUTING_MODE='$ROUTING_MODE' — leaving routing as-is"
-            ;;
-    esac
 }
 
 install_pi_packages
@@ -260,10 +247,6 @@ Pre-reboot install complete. AP credentials (save these):
   SSID:      ${AP_SSID}
   PSK:       (in /etc/NetworkManager/system-connections/wlan0-AP.nmconnection)
   Subnet:    ${AP_SUBNET}.0/24
-
-Routing mode: ${ROUTING_MODE}
-  - To switch: edit ROUTING_MODE in config.sh and re-run, OR
-    sudo systemctl start/stop mptcp-fulltunnel.service
 
 Reboot now to switch kernels and let boot-time
 services apply sysctl, iptables, NetworkManager, MPTCP limits, and
