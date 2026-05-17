@@ -75,7 +75,9 @@ note "shadowsocks-rust ssserver"
 install_ss_rust "${SS_RUST_VPS_ARCH:-x86_64-unknown-linux-gnu}" ssserver
 
 note "kernel MPTCP capability check"
-[ "$(sysctl -n net.mptcp.enabled 2>/dev/null)" = "1" ] || warn "net.mptcp.enabled != 1 — kernel may need an MPTCP-aware build"
+if [ "$(sysctl -n net.mptcp.enabled 2>/dev/null)" != "1" ]; then
+    die "MPTCP is disabled in the kernel; this setup will not work."
+fi
 
 note "sysctl"
 install_file "$SRC/sysctl-99-mptcp.conf"   /etc/sysctl.d/99-mptcp.conf
