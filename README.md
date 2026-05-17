@@ -23,14 +23,19 @@ detects the public IP (`VPS_IP`), and prints the install command for the
 Raspberry Pi. That printed command contains the `SS_PASSWORD` and `VPS_IP`
 environment variables.
 
+The VPS installer treats disabled kernel MPTCP support as fatal.
+
 ## Raspberry Pi setup
 
 On a Raspberry Pi (tested with Raspberry Pi OS) clone this repo and run
 the command printed by the VPS installer, e.g.
 ```bash
-sudo env SS_PASSWORD='...' VPS_IP='...' ./pi-install.sh
+ sudo env SS_PASSWORD='...' VPS_IP='...' ./pi-install.sh
 ```
 and then reboot.
+
+The leading space avoids bash history when `HISTCONTROL=ignorespace` or
+`ignoreboth` is enabled.
 
 ## High-level setup
 
@@ -43,9 +48,9 @@ for an MPTCP connection to the VPS.
 The tunnel is a Shadowsocks-rust TUN tunnel. On the Pi, `sslocal` creates
 `tun0` (`10.255.0.1/30`) and connects to the VPS using MPTCP with the redundant
 scheduler from the custom kernel. On the VPS, `ssserver` accepts that connection,
-decapsulates traffic, and NATs it out through the VPS WAN interface. In full
-tunnel mode, the Pi installs `0.0.0.0/1` and `128.0.0.0/1` routes through
-`tun0`, so client traffic is routed through the redundant LTE-to-VPS path.
+decapsulates traffic, and NATs it out through the VPS WAN interface. The Pi
+installs `0.0.0.0/1` and `128.0.0.0/1` routes through `tun0`, so client traffic
+is routed through the redundant LTE-to-VPS path.
 
 The Pi also keeps a direct route to the VPS public IP via one LTE interface.
 That route is deliberately outside `tun0`; otherwise the tunnel transport would
@@ -73,22 +78,18 @@ The `wlan0` AP profile uses NetworkManager's `ipv4.method=shared`, so when that
 profile is activated NetworkManager owns the AP-side address sharing for that
 interface.
 
-`shadowsocks-client.service` owns the Pi tunnel process. It starts `sslocal`,
-which creates `tun0`, enables `tcp_and_udp` tunnel mode, and uses top-level
-`mptcp=true` so the TCP connection to the VPS is an MPTCP connection. It also
-sets `tun0` MTU (conservatively) to `1200` to avoid oversized UDP datagrams after tunnel
-overhead. `shadowsocks-server.service` owns the matching VPS-side `ssserver`
-process and also runs with `tcp_and_udp` and `mptcp=true`.
+`shadowsocks-client.service` owns the Pi tunnel process and full-tunnel routes.
+It starts `sslocal`, which creates `tun0`, enables `tcp_and_udp` tunnel mode,
+and uses top-level `mptcp=true` so the TCP connection to the VPS is an MPTCP
+connection. The unit sets `tun0` MTU to `1200`, then installs the two
+half-default routes via `tun0` with `ip route replace`. `shadowsocks-server.service`
+owns the matching VPS-side `ssserver` process and also uses `tcp_and_udp` and
+`mptcp=true`.
 
 `mptcp-limits.service` owns the Pi boot-time MPTCP subflow limits. The VPS
 installer applies the same limits directly during install. The custom Pi kernel
 and both `99-mptcp.conf` files enable MPTCP; the Pi config also selects the
 `redundant` scheduler.
-
-`mptcp-fulltunnel.service` owns full-tunnel routing on the Pi. When enabled, it
-adds the two half-default routes via `tun0`; when stopped, it removes them. With
-`ROUTING_MODE=split`, this service is disabled and only traffic explicitly sent
-through `tun0` uses the tunnel.
 
 `networkmanager-dispatcher-99-mptcp-wwan` owns hotplug behavior for modem
 interfaces. On `wwan*` and `eth1` through `eth8` up events it adds an MPTCP
@@ -98,12 +99,25 @@ maintains the direct VPS bypass route. On down events it removes the
 endpoint/rule and tries to move the bypass route to another available modem
 link.
 
-iptables owns NAT. On the Pi, traffic leaving `tun0`, `wwan0`, `wwan1`, or
-`wlan0` is masqueraded. On the VPS, decapsulated traffic leaving the VPS WAN
-interface is masqueraded. IPv4 forwarding is enabled on both hosts through
-sysctl. UDP is carried by the Shadowsocks `tcp_and_udp` tunnel mode; there is no
-separate UDP relay service. ICMP is not given a separate owner in this repo, so
-its behavior is whatever the TUN/tunnel path and kernel routing support.
+iptables owns baseline NAT and TCP MSS clamping on the Pi. Traffic leaving
+`tun0` is masqueraded, TCP SYN packets crossing `tun0` are clamped to MSS 1160,
+and the `wlan0` AP profile uses NetworkManager `ipv4.method=shared`, so
+NetworkManager owns AP-side NAT. On the VPS, decapsulated traffic leaving the
+VPS WAN interface is masqueraded. IPv4 forwarding is enabled on both hosts
+through sysctl. UDP is carried by the Shadowsocks `tcp_and_udp` tunnel mode;
+there is no separate UDP relay service. ICMP is not given a separate owner in
+this repo, so its behavior is whatever the TUN/tunnel path and kernel routing
+support.
+
+## Updating pinned artifacts
+
+Downloaded root-installed artifacts are pinned by SHA256 in `config.sh`. When
+bumping `SS_RUST_VERSION`, `KERNEL_RELEASE`, or `KERNEL_PKG_VERSION`, download
+the new release artifacts from their upstream release pages and update:
+`SS_RUST_SHA256_AARCH64_UNKNOWN_LINUX_GNU`,
+`SS_RUST_SHA256_X86_64_UNKNOWN_LINUX_GNU`, `KERNEL_IMAGE_DEB_SHA256`, and
+`KERNEL_HEADERS_DEB_SHA256`. The installers refuse to unpack or install an
+artifact whose checksum does not match the configured value.
 
 udev owns the Alcatel modem driver fix. The rule detects the affected USB
 interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
@@ -115,8 +129,8 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   this file inventory.
 - `LICENSE` - repository license.
 - `config.sh` - shared configuration defaults for both installers: VPS address,
-  Shadowsocks settings, pinned Shadowsocks-rust version, Pi AP/LTE settings,
-  routing mode, and optional VPS WAN interface override.
+  Shadowsocks settings, pinned artifact versions and hashes, Pi AP/LTE settings,
+  and optional VPS WAN interface override.
 - `lib.sh` - shared installer helpers for root escalation, logging, template
   rendering, idempotent file installation, Shadowsocks-rust downloads, and IPv4
   validation.
@@ -126,8 +140,7 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   command.
 - `pi-install.sh` - idempotent Pi installer. Installs packages, downloads and
   selects the custom MPTCP kernel, installs NetworkManager/dnsmasq/systemd/udev
-  config, renders LTE/AP/Shadowsocks templates, enables services, and sets the
-  selected routing mode for next boot.
+  config, renders LTE/AP/Shadowsocks templates, and enables services.
 - `etc_files_pi/NetworkManager.conf` - disables NetworkManager DNS/resolv.conf
   management and enables the keyfile plugin used by the connection profiles.
 - `etc_files_pi/auto-lte.nmconnection` - preferred generic GSM profile using
@@ -141,13 +154,14 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
 - `etc_files_pi/eth-lte.nmconnection.template` - NetworkManager Ethernet
   profile template for modem links `eth1` through `eth8`.
 - `etc_files_pi/eth0.nmconnection` - NetworkManager profile for the wired
-  client LAN at `192.168.2.1/24`, with no default route and no MPTCP flags.
+  client LAN at `192.168.2.1/24`, with no default route and MPTCP explicitly
+  disabled.
 - `etc_files_pi/iptables-rules.v4` - persistent Pi NAT rules for `tun0`,
-  `wwan0`, `wwan1`, `eth1` through `eth8`, and `wlan0`.
+  TCP MSS clamping for the `tun0` path, and comments for NetworkManager-managed
+  `wlan0` AP NAT.
 - `etc_files_pi/journald-99-persistent.conf` - enables persistent systemd
-  journal storage so logs survive reboots.
-- `etc_files_pi/mptcp-fulltunnel.service` - systemd unit that adds/removes
-  full-tunnel half-default routes through `tun0`.
+  journal storage with size caps so logs survive reboots without unbounded SD
+  card growth.
 - `etc_files_pi/mptcp-limits.service` - systemd one-shot that sets MPTCP subflow
   and accepted-address limits on boot.
 - `etc_files_pi/networkmanager-dispatcher-99-mptcp-wwan` - NetworkManager

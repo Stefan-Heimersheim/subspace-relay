@@ -114,5 +114,5 @@ VPS install complete. Manual reminders:
   - Confirm with: ss -lntup | grep :${SS_PORT}
 
 Run this on the Pi:
-  sudo env SS_PASSWORD=$(shell_quote "$SS_PASSWORD") VPS_IP=$(shell_quote "$VPS_IP") ./pi-install.sh
+   sudo env SS_PASSWORD=$(shell_quote "$SS_PASSWORD") VPS_IP=$(shell_quote "$VPS_IP") ./pi-install.sh
 EOF
