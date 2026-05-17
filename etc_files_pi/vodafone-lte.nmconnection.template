@@ -7,7 +7,6 @@ autoconnect-priority=40
 
 [gsm]
 apn=${VODAFONE_APN}
-auto-config=false
 
 [ipv4]
 method=auto
