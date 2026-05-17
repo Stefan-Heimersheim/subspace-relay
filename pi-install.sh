@@ -121,7 +121,11 @@ install_custom_kernel() {
         install -d "$cache"
         fetch_url "${url_base}/${image_deb}" "${cache}/${image_deb}"
         fetch_url "${url_base}/${headers_deb}" "${cache}/${headers_deb}"
-        dpkg -i "${cache}/${image_deb}" "${cache}/${headers_deb}"
+        verify_sha256 "${cache}/${image_deb}" "${KERNEL_IMAGE_DEB_SHA256:-}" "$image_deb"
+        verify_sha256 "${cache}/${headers_deb}" "${KERNEL_HEADERS_DEB_SHA256:-}" "$headers_deb"
+        dpkg -i "${cache}/${image_deb}" "${cache}/${headers_deb}" || \
+            apt-get install -f -y || \
+            die "kernel package install failed; dpkg repair with apt-get install -f also failed"
     fi
 
     install_file "/boot/vmlinuz-${KERNEL_VERSION}" /boot/firmware/kernel8-mptcp.img
