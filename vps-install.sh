@@ -88,13 +88,21 @@ note "ip mptcp limits"
 ip mptcp limits set subflow 4 add_addr_accepted 4 || true
 
 note "systemd ssserver unit"
+if ! getent group shadowsocks >/dev/null; then
+    groupadd --system shadowsocks
+fi
+if ! id -u shadowsocks >/dev/null 2>&1; then
+    useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin --gid shadowsocks shadowsocks
+fi
 install_file "$SRC/shadowsocks-server.service" /etc/systemd/system/shadowsocks-server.service
 systemctl daemon-reload
 systemctl enable shadowsocks-server.service >/dev/null
 
 note "/etc/shadowsocks/server.json"
 install -d /etc/shadowsocks
-render_template "$SRC/shadowsocks-server.json.template" /etc/shadowsocks/server.json 0644
+render_template "$SRC/shadowsocks-server.json.template" /etc/shadowsocks/server.json 0600
+chown shadowsocks:shadowsocks /etc/shadowsocks/server.json
+chmod 0600 /etc/shadowsocks/server.json
 
 note "iptables (WAN=${VPS_WAN_IFACE})"
 install -d /etc/iptables

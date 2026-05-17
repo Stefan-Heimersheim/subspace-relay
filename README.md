@@ -83,8 +83,8 @@ It starts `sslocal`, which creates `tun0`, enables `tcp_and_udp` tunnel mode,
 and uses top-level `mptcp=true` so the TCP connection to the VPS is an MPTCP
 connection. The unit sets `tun0` MTU to `1200`, then installs the two
 half-default routes via `tun0` with `ip route replace`. `shadowsocks-server.service`
-owns the matching VPS-side `ssserver` process and also uses `tcp_and_udp` and
-`mptcp=true`.
+owns the matching VPS-side `ssserver` process, runs as the dedicated
+`shadowsocks` system user, and also uses `tcp_and_udp` and `mptcp=true`.
 
 `mptcp-limits.service` owns the Pi boot-time MPTCP subflow limits. The VPS
 installer applies the same limits directly during install. The custom Pi kernel

@@ -4,7 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=nobody
+User=shadowsocks
+Group=shadowsocks
 ExecStart=/usr/local/bin/ssserver -c /etc/shadowsocks/server.json
 Restart=on-failure
 RestartSec=5
