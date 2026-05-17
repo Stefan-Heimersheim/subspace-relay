@@ -242,7 +242,7 @@ install_persistent_config() {
 
     note "/etc/shadowsocks/client.json"
     install -d /etc/shadowsocks
-    render_template_force "$SRC/shadowsocks-client.json.template" /etc/shadowsocks/client.json 0644
+    render_template_force "$SRC/shadowsocks-client.json.template" /etc/shadowsocks/client.json 0600
 
     note "vnstat"
     systemctl enable vnstat >/dev/null 2>&1 || true
