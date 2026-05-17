@@ -4,7 +4,7 @@ type=ethernet
 interface-name=eth0
 autoconnect=true
 autoconnect-priority=100
-mptcp-flags=0x0
+mptcp-flags=disabled
 
 [ethernet]
 
