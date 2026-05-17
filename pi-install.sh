@@ -84,7 +84,6 @@ require_ipv4 VPS_IP "$VPS_IP"
 : "${VODAFONE_APN:=wap.vodafone.co.uk}"
 : "${AP_SSID:=PiMPTCP}"
 : "${AP_SUBNET:=192.168.4}"
-: "${ROUTING_MODE:=full}"
 if [ -z "${AP_PSK:-}" ]; then
     AP_PSK=$(generate_psk)
     log "generated random AP_PSK (re-run preserves it via existing nmconnection)"
@@ -130,24 +129,33 @@ install_custom_kernel() {
 
     note "/boot/firmware/config.txt — MPTCP kernel selection"
     touch "$boot_config"
-    local need_kernel=0 need_initramfs=0
+    local need_kernel=0 need_initramfs=0 tmp
     grep -qxF 'kernel=kernel8-mptcp.img' "$boot_config" || need_kernel=1
     grep -qxF 'initramfs initramfs8-mptcp followkernel' "$boot_config" || need_initramfs=1
-    if [ "$need_kernel" -eq 1 ] || [ "$need_initramfs" -eq 1 ]; then
-        printf '\n[all]\n' >> "$boot_config"
+    if [ "$need_kernel" -eq 0 ] && [ "$need_initramfs" -eq 0 ]; then
+        log "config.txt already references kernel8-mptcp.img and initramfs8-mptcp"
+        return 0
     fi
-    if [ "$need_kernel" -eq 1 ]; then
-        printf 'kernel=kernel8-mptcp.img\n' >> "$boot_config"
-        log "appended config.txt kernel selection"
+
+    tmp=$(mktemp)
+    if grep -qxF '[all]' "$boot_config"; then
+        awk -v add_kernel="$need_kernel" -v add_initramfs="$need_initramfs" '
+            { print }
+            !done && $0 == "[all]" {
+                if (add_kernel == 1) print "kernel=kernel8-mptcp.img"
+                if (add_initramfs == 1) print "initramfs initramfs8-mptcp followkernel"
+                done = 1
+            }
+        ' "$boot_config" > "$tmp"
     else
-        log "config.txt already references kernel8-mptcp.img"
+        cat "$boot_config" > "$tmp"
+        printf '\n[all]\n' >> "$tmp"
+        [ "$need_kernel" -eq 1 ] && printf 'kernel=kernel8-mptcp.img\n' >> "$tmp"
+        [ "$need_initramfs" -eq 1 ] && printf 'initramfs initramfs8-mptcp followkernel\n' >> "$tmp"
     fi
-    if [ "$need_initramfs" -eq 1 ]; then
-        printf 'initramfs initramfs8-mptcp followkernel\n' >> "$boot_config"
-        log "appended config.txt initramfs selection"
-    else
-        log "config.txt already references initramfs8-mptcp"
-    fi
+    install_file "$tmp" "$boot_config"
+    rm -f "$tmp"
+    log "updated config.txt custom-kernel selection"
 }
 
 install_persistent_config() {
