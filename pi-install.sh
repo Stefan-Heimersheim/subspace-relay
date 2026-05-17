@@ -106,15 +106,14 @@ install_pi_packages() {
 
 install_custom_kernel() {
     note "custom MPTCP kernel"
-    local image_deb headers_deb cache url_base boot_config running_kernel
+    local image_deb headers_deb cache url_base boot_config
     image_deb="linux-image-${KERNEL_VERSION}_${KERNEL_PKG_VERSION}_arm64.deb"
     headers_deb="linux-headers-${KERNEL_VERSION}_${KERNEL_PKG_VERSION}_arm64.deb"
     cache="/tmp/mptcp-kernel-${KERNEL_RELEASE}"
     url_base="${KERNEL_REPO}/releases/download/${KERNEL_RELEASE}"
     boot_config="/boot/firmware/config.txt"
-    running_kernel="$(uname -a)"
 
-    if printf '%s' "$running_kernel" | grep -Fq "$KERNEL_VERSION"; then
+    if [ "$(uname -r)" = "$KERNEL_VERSION" ]; then
         log "running kernel already matches ${KERNEL_VERSION}; skipping kernel download and package install"
     elif [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
          [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
