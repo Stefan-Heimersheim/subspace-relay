@@ -178,12 +178,14 @@ install_persistent_config() {
     note "systemd units"
     install_file "$SRC/mptcp-limits.service"        /etc/systemd/system/mptcp-limits.service
     install_file "$SRC/shadowsocks-client.service"  /etc/systemd/system/shadowsocks-client.service
+    install_file "$SRC/mptcp-bypass-health.service" /etc/systemd/system/mptcp-bypass-health.service
+    install_file "$SRC/mptcp-bypass-health.timer"   /etc/systemd/system/mptcp-bypass-health.timer
     systemctl daemon-reload
     systemctl disable mptcp-fulltunnel.service >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/mptcp-fulltunnel.service
     systemctl daemon-reload
     systemctl enable NetworkManager-wait-online.service >/dev/null 2>&1 || true
-    systemctl enable mptcp-limits.service shadowsocks-client.service >/dev/null
+    systemctl enable mptcp-limits.service shadowsocks-client.service mptcp-bypass-health.timer >/dev/null
 
     note "udev + helpers"
     install_file "$SRC/udev-99-alcatel-mbim.rules" /etc/udev/rules.d/99-alcatel-mbim.rules
@@ -192,7 +194,8 @@ install_persistent_config() {
     note "NetworkManager"
     install_file "$SRC/NetworkManager.conf" /etc/NetworkManager/NetworkManager.conf
     local dispatcher_tmp; dispatcher_tmp=$(mktemp)
-    sed "s|__VPS_IP__|$VPS_IP|g" "$SRC/networkmanager-dispatcher-99-mptcp-wwan" > "$dispatcher_tmp"
+    sed -e "s|__VPS_IP__|$VPS_IP|g" -e "s|__SS_SERVER_PORT__|$SS_PORT|g" \
+        "$SRC/networkmanager-dispatcher-99-mptcp-wwan" > "$dispatcher_tmp"
     install_file "$dispatcher_tmp" /etc/NetworkManager/dispatcher.d/99-mptcp-wwan 0755
     rm -f "$dispatcher_tmp"
     install -d -m 0700 /etc/NetworkManager/system-connections

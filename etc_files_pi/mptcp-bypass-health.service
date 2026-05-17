@@ -1,0 +1,8 @@
+[Unit]
+Description=Repair the direct VPS bypass route for the MPTCP tunnel
+After=NetworkManager.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/etc/NetworkManager/dispatcher.d/99-mptcp-wwan __probe__ probe
