@@ -2,7 +2,7 @@
 id=auto-lte
 type=gsm
 autoconnect=true
-autoconnect-priority=50
+autoconnect-priority=30
 multi-connect=3
 
 [gsm]
