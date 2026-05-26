@@ -12,6 +12,23 @@ require_root() {
     [ "$(id -u)" -eq 0 ] || exec sudo -E "$0" "$@"
 }
 
+# apt_ensure PKG... — install only the packages not already present.
+# Runs apt-get update + install only when something is actually missing.
+apt_ensure() {
+    local pkg missing=()
+    for pkg in "$@"; do
+        dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q '^install ok installed$' \
+            || missing+=("$pkg")
+    done
+    if [ "${#missing[@]}" -eq 0 ]; then
+        log "all required packages already installed"
+        return 0
+    fi
+    log "installing missing packages: ${missing[*]}"
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
+}
+
 # render_template SRC DST [MODE]
 # Substitutes ${VAR} from the environment via envsubst, writes to DST,
 # preserves DST if it already differs from rendered output ONLY when

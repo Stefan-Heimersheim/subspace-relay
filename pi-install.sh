@@ -94,13 +94,12 @@ install_pi_packages() {
     note "Pi packages"
     echo iptables-persistent iptables-persistent/autosave_v4 boolean false | debconf-set-selections
     echo iptables-persistent iptables-persistent/autosave_v6 boolean false | debconf-set-selections
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        network-manager modemmanager dnsmasq iptables-persistent curl vnstat \
-        mobile-broadband-provider-info \
-        usbutils gettext-base xz-utils openssl dnsutils mtr-tiny tcpdump \
-        netcat-openbsd tmux vim less jq tree htop git rsync ripgrep
+    # Runtime: network-manager modemmanager dnsmasq iptables-persistent.
+    # Install-time: curl (fetch sslocal), xz-utils (extract), gettext-base
+    # (envsubst), openssl (AP_PSK). vnstat: enabled as a service below.
+    # jq: reads password from existing config.
+    apt_ensure network-manager modemmanager dnsmasq iptables-persistent \
+        curl xz-utils gettext-base openssl vnstat jq
 }
 
 install_custom_kernel() {
