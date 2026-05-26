@@ -33,16 +33,28 @@ render_template() {
 install_file() {
     local src=$1 dst=$2 mode=${3:-0644}
     if [ -e "$dst" ] && cmp -s "$src" "$dst"; then
+        chmod "$mode" "$dst"
         log "  unchanged: $dst"; return 0
     fi
     install -m "$mode" "$src" "$dst"
     log "  installed: $dst"
 }
 
+verify_sha256() {
+    local file=$1 expected=$2 label=${3:-$file}
+    [ -n "$expected" ] || die "missing SHA256 pin for $label"
+    printf '%s  %s\n' "$expected" "$file" | sha256sum -c - >/dev/null \
+        || die "SHA256 mismatch for $label"
+    log "  verified SHA256: $label"
+}
+
 # install_ss_rust ARCH BIN_NAME — install sslocal or ssserver from upstream release tarball.
 # ARCH is e.g. aarch64-unknown-linux-gnu; BIN_NAME is sslocal or ssserver.
 install_ss_rust() {
     local arch=$1 bin=$2 ver=${SS_RUST_VERSION:?must set SS_RUST_VERSION}
+    local checksum_key expected
+    checksum_key="SS_RUST_SHA256_$(printf '%s' "$arch" | tr '[:lower:]-' '[:upper:]_')"
+    expected="${!checksum_key:-${SS_RUST_SHA256:-}}"
     local target="/usr/local/bin/$bin"
     if [ -x "$target" ] && "$target" --version 2>&1 | grep -q "${ver#v}"; then
         log "  $bin already at $ver"; return 0
@@ -56,6 +68,7 @@ install_ss_rust() {
         curl -fL --retry 3 --retry-delay 2 -o "$cache" "$url" \
             || die "failed to download $url"
     fi
+    verify_sha256 "$cache" "$expected" "shadowsocks-rust ${ver} ${arch}"
     tar -xJf "$cache" -C /tmp
     install -m 0755 "/tmp/$bin" "$target"
     log "  installed $target ($ver)"

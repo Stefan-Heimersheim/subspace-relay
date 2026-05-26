@@ -1,24 +1,21 @@
 [Unit]
 Description=Shadowsocks-rust client (TUN mode)
+Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/sslocal -c /etc/shadowsocks/client.json
 # Lower tun0 MTU so inner packets survive shadowsocks AEAD wrap on the
-# 1500-byte wwan outer path. Without this, QUIC datagrams >~1430 bytes
-# from CDNs trigger EMSGSIZE on the VPS (UDP has no MSS-clamping
-# equivalent). See DIARY_2026-05-09T18:47.md.
-ExecStartPost=/bin/sh -c 'for i in $(seq 20); do ip link show tun0 >/dev/null 2>&1 && break; sleep 0.25; done; ip link set dev tun0 mtu 1200'
+# 1500-byte outer path, then install unconditional full-tunnel routes.
+# These ExecStartPost commands fail if tun0 did not appear, causing systemd
+# to restart sslocal instead of reporting a route-less tunnel as healthy.
+ExecStartPost=/bin/sh -e -c 'for i in $(seq 20); do ip link show tun0 >/dev/null 2>&1 && break; sleep 0.25; done; ip link show tun0 >/dev/null; ip link set dev tun0 mtu 1200'
+ExecStartPost=/sbin/ip route replace 0.0.0.0/1 dev tun0
+ExecStartPost=/sbin/ip route replace 128.0.0.0/1 dev tun0
+ExecStopPost=/bin/sh -c 'ip route del 0.0.0.0/1 dev tun0 2>/dev/null || true; ip route del 128.0.0.0/1 dev tun0 2>/dev/null || true'
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-
-# NOTE: This unit does NOT add the 0.0.0.0/1 + 128.0.0.0/1 dev tun0 routes
-# that capture default traffic. We run in split-routing mode (default via
-# wlan0 client / LTE fallback; tun0 reached only when explicitly bound via
-# --interface tun0). To switch to full-tunnel mode, add an
-# ExecStartPost that polls for tun0 then `ip route add 0.0.0.0/1 dev tun0`
-# and `ip route add 128.0.0.0/1 dev tun0`. See pi-install.sh comment.

@@ -1,18 +1,19 @@
+*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A FORWARD -o tun0 -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1160
+-A FORWARD -i tun0 -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1160
+COMMIT
+
 *nat
 :PREROUTING ACCEPT [0:0]
 :INPUT ACCEPT [0:0]
 :OUTPUT ACCEPT [0:0]
 :POSTROUTING ACCEPT [0:0]
 -A POSTROUTING -o tun0 -j MASQUERADE
--A POSTROUTING -o wwan0 -j MASQUERADE
--A POSTROUTING -o wwan1 -j MASQUERADE
--A POSTROUTING -o eth1 -j MASQUERADE
--A POSTROUTING -o eth2 -j MASQUERADE
--A POSTROUTING -o eth3 -j MASQUERADE
--A POSTROUTING -o eth4 -j MASQUERADE
--A POSTROUTING -o eth5 -j MASQUERADE
--A POSTROUTING -o eth6 -j MASQUERADE
--A POSTROUTING -o eth7 -j MASQUERADE
--A POSTROUTING -o eth8 -j MASQUERADE
--A POSTROUTING -o wlan0 -j MASQUERADE
+# wwan*/eth1-eth8 NAT is managed by the NetworkManager dispatcher as links come up.
+# wlan0 AP NAT is handled by NetworkManager's ipv4.method=shared profile.
 COMMIT

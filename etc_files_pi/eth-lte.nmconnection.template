@@ -4,15 +4,13 @@ type=ethernet
 interface-name=${LTE_IFACE}
 autoconnect=true
 autoconnect-priority=50
-never-default=true
-route-metric=700
 
 [ethernet]
 
 [ipv4]
 method=auto
 never-default=true
-route-metric=700
+route-metric=800
 
 [ipv6]
 method=auto

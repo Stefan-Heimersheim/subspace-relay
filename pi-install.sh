@@ -1,10 +1,9 @@
 #!/bin/bash
 # Pi pre-reboot install — fully idempotent. Reads ./config.sh for defaults;
-# VPS_IP and SS_PASSWORD can be passed on the command line from vps-install.sh.
+# VPS_IP and SS_PASSWORD can be passed in the environment from vps-install.sh.
 # Fetches sslocal, renders templates, and installs persistent boot-time config.
 #
 # Run on the Pi as root: `sudo ./pi-install.sh`
-# After reboot, optionally run: `sudo ./pi-post-reboot.sh`
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$ROOT/etc_files_pi"
@@ -59,12 +58,6 @@ render_template_force() {
     rm -f "$tmp"
 }
 
-for arg in "$@"; do
-    case "$arg" in
-        *) die "unknown argument: $arg" ;;
-    esac
-done
-
 ENV_VPS_IP="${VPS_IP:-}"
 ENV_SS_PASSWORD="${SS_PASSWORD:-}"
 
@@ -91,7 +84,6 @@ require_ipv4 VPS_IP "$VPS_IP"
 : "${VODAFONE_APN:=wap.vodafone.co.uk}"
 : "${AP_SSID:=PiMPTCP}"
 : "${AP_SUBNET:=192.168.4}"
-: "${ROUTING_MODE:=full}"
 if [ -z "${AP_PSK:-}" ]; then
     AP_PSK=$(generate_psk)
     log "generated random AP_PSK (re-run preserves it via existing nmconnection)"
@@ -113,15 +105,14 @@ install_pi_packages() {
 
 install_custom_kernel() {
     note "custom MPTCP kernel"
-    local image_deb headers_deb cache url_base boot_config running_kernel
+    local image_deb headers_deb cache url_base boot_config
     image_deb="linux-image-${KERNEL_VERSION}_${KERNEL_PKG_VERSION}_arm64.deb"
     headers_deb="linux-headers-${KERNEL_VERSION}_${KERNEL_PKG_VERSION}_arm64.deb"
     cache="/tmp/mptcp-kernel-${KERNEL_RELEASE}"
     url_base="${KERNEL_REPO}/releases/download/${KERNEL_RELEASE}"
     boot_config="/boot/firmware/config.txt"
-    running_kernel="$(uname -a)"
 
-    if printf '%s' "$running_kernel" | grep -Fq "$KERNEL_VERSION"; then
+    if [ "$(uname -r)" = "$KERNEL_VERSION" ]; then
         log "running kernel already matches ${KERNEL_VERSION}; skipping kernel download and package install"
     elif [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
          [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
@@ -130,7 +121,11 @@ install_custom_kernel() {
         install -d "$cache"
         fetch_url "${url_base}/${image_deb}" "${cache}/${image_deb}"
         fetch_url "${url_base}/${headers_deb}" "${cache}/${headers_deb}"
-        dpkg -i "${cache}/${image_deb}" "${cache}/${headers_deb}"
+        verify_sha256 "${cache}/${image_deb}" "${KERNEL_IMAGE_DEB_SHA256:-}" "$image_deb"
+        verify_sha256 "${cache}/${headers_deb}" "${KERNEL_HEADERS_DEB_SHA256:-}" "$headers_deb"
+        dpkg -i "${cache}/${image_deb}" "${cache}/${headers_deb}" || \
+            apt-get install -f -y || \
+            die "kernel package install failed; dpkg repair with apt-get install -f also failed"
     fi
 
     install_file "/boot/vmlinuz-${KERNEL_VERSION}" /boot/firmware/kernel8-mptcp.img
@@ -138,24 +133,33 @@ install_custom_kernel() {
 
     note "/boot/firmware/config.txt — MPTCP kernel selection"
     touch "$boot_config"
-    local need_kernel=0 need_initramfs=0
+    local need_kernel=0 need_initramfs=0 tmp
     grep -qxF 'kernel=kernel8-mptcp.img' "$boot_config" || need_kernel=1
     grep -qxF 'initramfs initramfs8-mptcp followkernel' "$boot_config" || need_initramfs=1
-    if [ "$need_kernel" -eq 1 ] || [ "$need_initramfs" -eq 1 ]; then
-        printf '\n[all]\n' >> "$boot_config"
+    if [ "$need_kernel" -eq 0 ] && [ "$need_initramfs" -eq 0 ]; then
+        log "config.txt already references kernel8-mptcp.img and initramfs8-mptcp"
+        return 0
     fi
-    if [ "$need_kernel" -eq 1 ]; then
-        printf 'kernel=kernel8-mptcp.img\n' >> "$boot_config"
-        log "appended config.txt kernel selection"
+
+    tmp=$(mktemp)
+    if grep -qxF '[all]' "$boot_config"; then
+        awk -v add_kernel="$need_kernel" -v add_initramfs="$need_initramfs" '
+            { print }
+            !done && $0 == "[all]" {
+                if (add_kernel == 1) print "kernel=kernel8-mptcp.img"
+                if (add_initramfs == 1) print "initramfs initramfs8-mptcp followkernel"
+                done = 1
+            }
+        ' "$boot_config" > "$tmp"
     else
-        log "config.txt already references kernel8-mptcp.img"
+        cat "$boot_config" > "$tmp"
+        printf '\n[all]\n' >> "$tmp"
+        [ "$need_kernel" -eq 1 ] && printf 'kernel=kernel8-mptcp.img\n' >> "$tmp"
+        [ "$need_initramfs" -eq 1 ] && printf 'initramfs initramfs8-mptcp followkernel\n' >> "$tmp"
     fi
-    if [ "$need_initramfs" -eq 1 ]; then
-        printf 'initramfs initramfs8-mptcp followkernel\n' >> "$boot_config"
-        log "appended config.txt initramfs selection"
-    else
-        log "config.txt already references initramfs8-mptcp"
-    fi
+    install_file "$tmp" "$boot_config"
+    rm -f "$tmp"
+    log "updated config.txt custom-kernel selection"
 }
 
 install_persistent_config() {
@@ -174,8 +178,11 @@ install_persistent_config() {
     note "systemd units"
     install_file "$SRC/mptcp-limits.service"        /etc/systemd/system/mptcp-limits.service
     install_file "$SRC/shadowsocks-client.service"  /etc/systemd/system/shadowsocks-client.service
-    install_file "$SRC/mptcp-fulltunnel.service"    /etc/systemd/system/mptcp-fulltunnel.service
     systemctl daemon-reload
+    systemctl disable mptcp-fulltunnel.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/mptcp-fulltunnel.service
+    systemctl daemon-reload
+    systemctl enable NetworkManager-wait-online.service >/dev/null 2>&1 || true
     systemctl enable mptcp-limits.service shadowsocks-client.service >/dev/null
 
     note "udev + helpers"
@@ -235,25 +242,10 @@ install_persistent_config() {
 
     note "/etc/shadowsocks/client.json"
     install -d /etc/shadowsocks
-    render_template_force "$SRC/shadowsocks-client.json.template" /etc/shadowsocks/client.json 0644
+    render_template_force "$SRC/shadowsocks-client.json.template" /etc/shadowsocks/client.json 0600
 
     note "vnstat"
     systemctl enable vnstat >/dev/null 2>&1 || true
-
-    note "routing mode: ${ROUTING_MODE}"
-    case "$ROUTING_MODE" in
-        full)
-            systemctl enable mptcp-fulltunnel.service >/dev/null
-            log "mptcp-fulltunnel ENABLED for next boot — all traffic via tun0"
-            ;;
-        split)
-            systemctl disable mptcp-fulltunnel.service >/dev/null 2>&1 || true
-            log "split mode set for next boot — default routing on wlan/wwan"
-            ;;
-        *)
-            warn "unknown ROUTING_MODE='$ROUTING_MODE' — leaving routing as-is"
-            ;;
-    esac
 }
 
 install_pi_packages
@@ -266,10 +258,6 @@ Pre-reboot install complete. AP credentials (save these):
   SSID:      ${AP_SSID}
   PSK:       (in /etc/NetworkManager/system-connections/wlan0-AP.nmconnection)
   Subnet:    ${AP_SUBNET}.0/24
-
-Routing mode: ${ROUTING_MODE}
-  - To switch: edit ROUTING_MODE in config.sh and re-run, OR
-    sudo systemctl start/stop mptcp-fulltunnel.service
 
 Reboot now to switch kernels and let boot-time
 services apply sysctl, iptables, NetworkManager, MPTCP limits, and
