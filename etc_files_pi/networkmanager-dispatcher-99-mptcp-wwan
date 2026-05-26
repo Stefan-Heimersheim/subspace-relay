@@ -15,23 +15,26 @@
 # fires events for multiple interfaces in quick succession; without locking,
 # route and rule updates can race.
 
-IFACE=${1:-}
-ACTION=${2:-}
-VPS=__VPS_IP__
-SS_PORT=__SS_SERVER_PORT__
-STATE_DIR=/run/mptcp-dispatcher
+IFACE=$1
+ACTION=$2
 
 is_supported_iface() {
-  [[ "$1" =~ ^wwan[0-9]+$ ]] && return 0
+  [[ "$1" == wwan* ]] && return 0
   [[ "$1" =~ ^eth[1-8]$ ]] && return 0
   return 1
 }
 
+is_supported_iface "$IFACE" || exit 0
+
 LOCK="/run/mptcp-wwan.lock"
 exec 9>"$LOCK"
-flock -w 10 9 || exit 0
+flock 9 || exit 0
 
-iface_index() {
+IP=$(ip -4 addr show "$IFACE" 2>/dev/null | awk "/inet / {split(\$2,a,\"/\"); print a[1]}")
+GW=${IP4_GATEWAY:-}
+[ -n "$GW" ] || GW=$(ip route show dev "$IFACE" 2>/dev/null | awk "/default/ {print \$3; exit}")
+[ -n "$GW" ] || GW=$(nmcli -g IP4.GATEWAY device show "$IFACE" 2>/dev/null | awk 'NF {print; exit}')
+iface_num() {
   case "$1" in
     wwan*) printf '%s\n' "${1#wwan}" ;;
     eth*) printf '%s\n' "${1#eth}" ;;
@@ -39,140 +42,56 @@ iface_index() {
   esac
 }
 
-table_for_iface() {
-  local num
-  num=$(iface_index "$1") || return 1
-  case "$1" in
-    wwan*) printf '%s\n' $((100 + num)) ;;
-    eth*) printf '%s\n' $((200 + num)) ;;
-    *) return 1 ;;
-  esac
-}
-
-metric_for_iface() {
-  local num
-  num=$(iface_index "$1") || return 1
-  case "$1" in
-    wwan*) printf '%s\n' $((700 + num)) ;;
-    eth*) printf '%s\n' $((800 + num)) ;;
-    *) return 1 ;;
-  esac
-}
-
-ip_for_iface() {
-  ip -4 addr show "$1" 2>/dev/null | awk "/inet / {split(\$2,a,\"/\"); print a[1]; exit}"
-}
-
-gw_for_iface() {
-  local iface=$1 table gw
-  table=$(table_for_iface "$iface") || return 1
-  gw=$(ip -4 route show table "$table" default dev "$iface" 2>/dev/null | awk '/default/ {print $3; exit}')
-  [ -n "$gw" ] || gw=$(ip route show dev "$iface" 2>/dev/null | awk "/default/ {print \$3; exit}")
-  [ -n "$gw" ] || gw=$(nmcli -g IP4.GATEWAY device show "$iface" 2>/dev/null | awk 'NF {print; exit}')
-  [ -n "$gw" ] || return 1
-  printf '%s\n' "$gw"
-}
-
-ensure_nat_rule() {
-  iptables -t nat -C POSTROUTING -o "$1" -j MASQUERADE 2>/dev/null || \
-    iptables -t nat -A POSTROUTING -o "$1" -j MASQUERADE 2>/dev/null || true
-}
-
-remove_nat_rule() {
-  while iptables -t nat -D POSTROUTING -o "$1" -j MASQUERADE 2>/dev/null; do :; done
-}
-
-tcp_probe() {
-  local source_ip=${1:-}
-  if [ -n "$source_ip" ]; then
-    timeout 6 nc -z -w3 -s "$source_ip" "$VPS" "$SS_PORT" >/dev/null 2>&1
-  else
-    timeout 6 nc -z -w3 "$VPS" "$SS_PORT" >/dev/null 2>&1
-  fi
-}
-
-iface_reaches_vps() {
-  local iface=$1 ip
-  ip=$(ip_for_iface "$iface")
-  [ -n "$ip" ] || return 1
-  tcp_probe "$ip"
-}
-
-candidate_ifaces() {
-  local path iface
-  for path in /sys/class/net/wwan[0-9]* /sys/class/net/eth[1-8]; do
-    [ -e "$path" ] || continue
-    iface=${path##*/}
-    is_supported_iface "$iface" && printf '%s\n' "$iface"
-  done | sort -V
-}
+NUM=$(iface_num "$IFACE")
+TABLE=$((100 + NUM))
+METRIC=$((700 + NUM))
+VPS=__VPS_IP__
 
 ensure_vps_bypass_route() {
-  local current current_dev candidate candidate_gw candidate_metric
+  local current
   current=$(ip -4 route get "$VPS" 2>/dev/null || true)
 
-  current_dev=$(printf '%s\n' "$current" | awk '
-    {
-      for (i = 1; i <= NF; i++) {
-        if ($i == "dev") {
-          print $(i + 1)
-          exit
-        }
-      }
-    }')
-  if is_supported_iface "$current_dev" && tcp_probe ""; then
+  # If sslocal already reaches the VPS through any modem route, leave that
+  # route in place. Replacing it during hotplug can briefly disturb the
+  # existing MPTCP connection; the new modem can still join via its
+  # source-route table.
+  if printf '%s\n' "$current" | grep -Eq ' dev (wwan[0-9]+|eth[1-8])'; then
     return 0
   fi
 
-  while read -r candidate; do
-    iface_reaches_vps "$candidate" || continue
-    candidate_gw=$(gw_for_iface "$candidate") || continue
-    candidate_metric=$(metric_for_iface "$candidate") || continue
-    ip route replace "$VPS" via "$candidate_gw" dev "$candidate" metric "$candidate_metric" 2>/dev/null || true
-    return 0
-  done < <(candidate_ifaces)
+  ip route replace "$VPS" via "$GW" dev "$IFACE" metric "$METRIC" 2>/dev/null || true
 }
 
 restore_vps_bypass_route() {
-  ensure_vps_bypass_route
+  local candidate_path candidate candidate_table candidate_metric candidate_gw
+
+  for candidate_path in /sys/class/net/wwan* /sys/class/net/eth[1-8]; do
+    [ -e "$candidate_path" ] || continue
+    candidate=${candidate_path##*/}
+    [ "$candidate" = "$IFACE" ] && continue
+    candidate_table=$((100 + $(iface_num "$candidate")))
+    candidate_metric=$((700 + $(iface_num "$candidate")))
+    candidate_gw=$(ip -4 route show table "$candidate_table" default dev "$candidate" 2>/dev/null | awk '/default/ {print $3; exit}')
+    [ -n "$candidate_gw" ] || continue
+
+    ip route replace "$VPS" via "$candidate_gw" dev "$candidate" metric "$candidate_metric" 2>/dev/null || true
+    return 0
+  done
 }
 
 case "$ACTION" in
-  probe)
-    ensure_vps_bypass_route
-    ;;
   up)
-    is_supported_iface "$IFACE" || exit 0
-    IP=$(ip_for_iface "$IFACE")
-    GW=${IP4_GATEWAY:-}
-    [ -n "$GW" ] || GW=$(gw_for_iface "$IFACE" || true)
-    TABLE=$(table_for_iface "$IFACE")
     [[ -z "$IP" || -z "$GW" ]] && exit 0
-    install -d "$STATE_DIR"
-    old_ip=$(cat "$STATE_DIR/$IFACE.ip" 2>/dev/null || true)
-    if [ -n "$old_ip" ] && [ "$old_ip" != "$IP" ]; then
-      while ip rule del from "$old_ip" table "$TABLE" 2>/dev/null; do :; done
-    fi
-    while ip rule del from "$IP" table "$TABLE" 2>/dev/null; do :; done
+    while ip rule del table "$TABLE" 2>/dev/null; do : ; done
     ip rule add from "$IP" table "$TABLE" 2>/dev/null || true
     ip route replace default via "$GW" dev "$IFACE" table "$TABLE" 2>/dev/null || true
     ip mptcp endpoint add "$IP" dev "$IFACE" subflow 2>/dev/null || true
-    ensure_nat_rule "$IFACE"
-    printf '%s\n' "$IP" > "$STATE_DIR/$IFACE.ip"
     ensure_vps_bypass_route
     ;;
   down|pre-down)
-    is_supported_iface "$IFACE" || exit 0
-    TABLE=$(table_for_iface "$IFACE")
     ip mptcp endpoint delete dev "$IFACE" 2>/dev/null || true
-    IP=$(cat "$STATE_DIR/$IFACE.ip" 2>/dev/null || true)
-    [ -n "$IP" ] || IP=$(ip_for_iface "$IFACE")
-    if [ -n "$IP" ]; then
-      while ip rule del from "$IP" table "$TABLE" 2>/dev/null; do :; done
-    fi
-    rm -f "$STATE_DIR/$IFACE.ip"
+    while ip rule del table "$TABLE" 2>/dev/null; do : ; done
     ip route del "$VPS" dev "$IFACE" 2>/dev/null || true
-    remove_nat_rule "$IFACE"
     restore_vps_bypass_route
     ;;
 esac

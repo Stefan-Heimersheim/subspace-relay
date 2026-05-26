@@ -94,25 +94,20 @@ and both `99-mptcp.conf` files enable MPTCP; the Pi config also selects the
 `networkmanager-dispatcher-99-mptcp-wwan` owns hotplug behavior for modem
 interfaces. On `wwan*` and `eth1` through `eth8` up events it adds an MPTCP
 subflow endpoint, creates an `ip rule` for traffic sourced from that modem
-address, installs that modem's default route into its per-interface table, adds
-per-uplink NAT for direct-mode traffic, and maintains the direct VPS bypass
-route. `wwanN` uses table `100+N` and metric `700+N`; `ethN` uses table `200+N`
-and metric `800+N`. On down events it removes the endpoint, the exact
-source-IP rule saved for that interface, the per-uplink NAT rule, and tries to
-move the bypass route to another reachable modem link. A systemd timer runs the
-same bypass health check every 60 seconds so a stale-but-up link can be
-replaced without waiting for a link flap.
+address, installs that modem's default route into its per-interface table, and
+maintains the direct VPS bypass route. On down events it removes the
+endpoint/rule and tries to move the bypass route to another available modem
+link.
 
 iptables owns baseline NAT and TCP MSS clamping on the Pi. Traffic leaving
 `tun0` is masqueraded, TCP SYN packets crossing `tun0` are clamped to MSS 1160,
-and dynamic direct-uplink NAT for `wwan*` and `eth1` through `eth8` is managed
-by the dispatcher. The `wlan0` AP profile uses NetworkManager
-`ipv4.method=shared`, so NetworkManager owns AP-side NAT. On the VPS,
-decapsulated traffic leaving the VPS WAN interface is masqueraded. IPv4
-forwarding is enabled on both hosts through sysctl. UDP is carried by the
-Shadowsocks `tcp_and_udp` tunnel mode; there is no separate UDP relay service.
-ICMP is not given a separate owner in this repo, so its behavior is whatever the
-TUN/tunnel path and kernel routing support.
+and the `wlan0` AP profile uses NetworkManager `ipv4.method=shared`, so
+NetworkManager owns AP-side NAT. On the VPS, decapsulated traffic leaving the
+VPS WAN interface is masqueraded. IPv4 forwarding is enabled on both hosts
+through sysctl. UDP is carried by the Shadowsocks `tcp_and_udp` tunnel mode;
+there is no separate UDP relay service. ICMP is not given a separate owner in
+this repo, so its behavior is whatever the TUN/tunnel path and kernel routing
+support.
 
 ## Updating pinned artifacts
 
@@ -162,15 +157,11 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   client LAN at `192.168.2.1/24`, with no default route and MPTCP explicitly
   disabled.
 - `etc_files_pi/iptables-rules.v4` - persistent Pi NAT rules for `tun0`,
-  TCP MSS clamping for the `tun0` path, and comments for dispatcher-managed
-  direct-uplink NAT and NetworkManager-managed `wlan0` AP NAT.
+  TCP MSS clamping for the `tun0` path, and comments for NetworkManager-managed
+  `wlan0` AP NAT.
 - `etc_files_pi/journald-99-persistent.conf` - enables persistent systemd
   journal storage with size caps so logs survive reboots without unbounded SD
   card growth.
-- `etc_files_pi/mptcp-bypass-health.service` - systemd one-shot that asks the
-  dispatcher to repair the direct VPS bypass route.
-- `etc_files_pi/mptcp-bypass-health.timer` - periodic 60-second timer for the
-  bypass health service.
 - `etc_files_pi/mptcp-limits.service` - systemd one-shot that sets MPTCP subflow
   and accepted-address limits on boot.
 - `etc_files_pi/networkmanager-dispatcher-99-mptcp-wwan` - NetworkManager
