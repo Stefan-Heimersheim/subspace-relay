@@ -1,5 +1,5 @@
 [connection]
-id=wlan0-AP
+id=downstream-wlan0
 type=wifi
 interface-name=wlan0
 autoconnect=true
