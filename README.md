@@ -67,23 +67,23 @@ profiles `upstream-eth1` through `upstream-eth8`, and the optional
 `never-default=true`; they supply addresses and gateways for their own
 source-routing tables, but they do not become the ordinary system default route.
 `downstream-eth0` is a static client LAN and is explicitly not an MPTCP subflow
-endpoint. `upstream-auto-cdc-wdm` and the device-bound `upstream-dummy-cdc-wdm` profiles
-share top autoconnect priority (50); `upstream-vodafone` (priority 40) is a
-fallback.
+endpoint. The device-bound `upstream-dummy-cdc-wdm` profiles have top autoconnect
+priority (50), followed by `upstream-auto-cdc-wdm` (45) and the unbound
+`upstream-vodafone` (40).
 
 GSM APN choice was tested against EE and TalkMobile SIMs: both connect and carry
 real traffic with essentially any APN setting — a correct
 APN, a nonsense APN, no APN line at all, or provider auto-configuration. The only
 hard failure is an empty `apn=` value, which makes the modem refuse to activate.
-Given that, `upstream-auto-cdc-wdm` uses provider auto-configuration (`auto-config=true`)
-as the conservative default; it requires the `mobile-broadband-provider-info` APN
-database, without which activation fails like an empty `apn=`. We keep the explicit
-`upstream-vodafone` profile as a fallback because a Vodafone SIM was finnicky in the
-past and needed a specific APN (`wap.vodafone.co.uk`); the EE- and TalkMobile-specific
-profiles were dropped since auto-config covers them. The `upstream-dummy-cdc-wdm`
-profiles are device-bound with a placeholder `apn=dummy`, so each modem
-has its own working profile even when auto-config fails and another modem already
-holds the single unbound `upstream-vodafone` profile.
+Given that, the preferred `upstream-dummy-cdc-wdm` profiles are device-bound with a
+placeholder `apn=dummy`, so each modem has its own working profile regardless of
+the SIM inserted. `upstream-auto-cdc-wdm` uses provider auto-configuration
+(`auto-config=true`) as the next choice; it requires the
+`mobile-broadband-provider-info` APN database, without which activation fails like
+an empty `apn=`. We keep the explicit `upstream-vodafone` profile as a last, unbound
+fallback because a Vodafone SIM was finnicky in the past and needed a specific APN
+(`wap.vodafone.co.uk`); the EE- and TalkMobile-specific profiles were dropped since
+the dummy/auto profiles cover them.
 
 `dnsmasq` owns DHCP for the wired client LAN on `eth0`. It gives clients
 addresses in `192.168.2.0/24`, default gateway `192.168.2.1`, and public DNS
@@ -191,14 +191,14 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   redundant scheduler.
 - `etc_files_pi/udev-99-alcatel-mbim.rules` - udev rule that detects the
   affected Alcatel USB modem interface and runs the MBIM rebind helper.
-- `etc_files_pi/upstream-auto-cdc-wdm.nmconnection.template` - preferred generic
-  GSM profile using NetworkManager provider auto-configuration, rendered once per
+- `etc_files_pi/upstream-auto-cdc-wdm.nmconnection.template` - generic GSM
+  profile using NetworkManager provider auto-configuration, rendered once per
   modem control port (`cdc-wdm0` through `cdc-wdm7`) with
   `${MODEM_IFACE}`/`${MODEM_ID}` as `upstream-auto-cdc-wdm0` through
   `upstream-auto-cdc-wdm7`.
-- `etc_files_pi/upstream-dummy-cdc-wdm.nmconnection.template` - device-bound GSM
-  fallback profile with a placeholder `apn=dummy`, rendered per modem control
-  port as `upstream-dummy-cdc-wdm0` through `upstream-dummy-cdc-wdm7`.
+- `etc_files_pi/upstream-dummy-cdc-wdm.nmconnection.template` - preferred
+  device-bound GSM profile with a placeholder `apn=dummy`, rendered per modem
+  control port as `upstream-dummy-cdc-wdm0` through `upstream-dummy-cdc-wdm7`.
 - `etc_files_pi/upstream-eth.nmconnection.template` - NetworkManager Ethernet
   profile template for modem links `eth1` through `eth8`, rendered as
   `upstream-eth1` through `upstream-eth8`.
