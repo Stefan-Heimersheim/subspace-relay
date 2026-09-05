@@ -3,7 +3,7 @@ id=${MODEM_ID}
 type=gsm
 interface-name=${MODEM_IFACE}
 autoconnect=true
-autoconnect-priority=45
+autoconnect-priority=50
 
 [gsm]
 apn=dummy

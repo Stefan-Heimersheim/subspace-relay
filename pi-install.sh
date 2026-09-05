@@ -213,14 +213,14 @@ install_persistent_config() {
     # Generic auto-config GSM profile, one per possible modem control port. NM
     # binds gsm connections to the MBIM control port (cdc-wdmN), not wwanN.
     for i in $(seq 0 7); do
-        export MODEM_IFACE="cdc-wdm${i}" MODEM_ID="upstream-cdc-wdm${i}"
+        export MODEM_IFACE="cdc-wdm${i}" MODEM_ID="upstream-auto-cdc-wdm${i}"
         render_template_force \
-            "$SRC/upstream-cdc-wdm.nmconnection.template" \
-            "/etc/NetworkManager/system-connections/upstream-cdc-wdm${i}.nmconnection" 0600
-        export MODEM_ID="upstream-dummyapn${i}"
+            "$SRC/upstream-auto-cdc-wdm.nmconnection.template" \
+            "/etc/NetworkManager/system-connections/upstream-auto-cdc-wdm${i}.nmconnection" 0600
+        export MODEM_ID="upstream-dummy-cdc-wdm${i}"
         render_template_force \
-            "$SRC/upstream-dummyapn.nmconnection.template" \
-            "/etc/NetworkManager/system-connections/upstream-dummyapn${i}.nmconnection" 0600
+            "$SRC/upstream-dummy-cdc-wdm.nmconnection.template" \
+            "/etc/NetworkManager/system-connections/upstream-dummy-cdc-wdm${i}.nmconnection" 0600
     done
     for i in $(seq 1 8); do
         export LTE_IFACE="eth${i}" LTE_ID="upstream-eth${i}"
