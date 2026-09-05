@@ -95,7 +95,8 @@ install_pi_packages() {
     # Install-time: curl (fetch sslocal), xz-utils (extract), gettext-base
     # (envsubst), openssl (AP_PSK). vnstat: enabled as a service below.
     # jq: reads password from existing config.
-    apt_ensure network-manager modemmanager dnsmasq iptables-persistent \
+    apt_ensure network-manager modemmanager mobile-broadband-provider-info \
+        dnsmasq iptables-persistent \
         curl xz-utils gettext-base openssl vnstat jq
 }
 
@@ -216,6 +217,10 @@ install_persistent_config() {
         render_template_force \
             "$SRC/upstream-cdc-wdm.nmconnection.template" \
             "/etc/NetworkManager/system-connections/upstream-cdc-wdm${i}.nmconnection" 0600
+        export MODEM_ID="upstream-dummyapn${i}"
+        render_template_force \
+            "$SRC/upstream-dummyapn.nmconnection.template" \
+            "/etc/NetworkManager/system-connections/upstream-dummyapn${i}.nmconnection" 0600
     done
     for i in $(seq 1 8); do
         export LTE_IFACE="eth${i}" LTE_ID="upstream-eth${i}"
