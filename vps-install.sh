@@ -41,11 +41,10 @@ shell_quote() {
 note "VPS packages"
 echo iptables-persistent iptables-persistent/autosave_v4 boolean false | debconf-set-selections
 echo iptables-persistent iptables-persistent/autosave_v6 boolean false | debconf-set-selections
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    iptables-persistent curl gettext-base xz-utils dnsutils tcpdump \
-    netcat-openbsd tmux vim less jq tree htop git rsync ripgrep
+# Runtime: iptables-persistent. Install-time: curl (fetch ssserver + public
+# IP), gettext-base (envsubst), xz-utils (extract). jq: reads password from
+# existing config.
+apt_ensure iptables-persistent curl gettext-base xz-utils jq
 
 ENV_VPS_IP="${VPS_IP:-}"
 ENV_SS_PASSWORD="${SS_PASSWORD:-}"
