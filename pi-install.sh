@@ -231,7 +231,6 @@ install_persistent_config() {
 
     note "dnsmasq"
     install_file "$SRC/dnsmasq.conf" /etc/dnsmasq.conf
-    printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
     systemctl enable dnsmasq >/dev/null
     systemctl reload dnsmasq 2>/dev/null || systemctl restart dnsmasq || true
 
