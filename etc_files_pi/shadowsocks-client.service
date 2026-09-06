@@ -13,6 +13,13 @@ ExecStart=/usr/local/bin/sslocal -c /etc/shadowsocks/client.json
 ExecStartPost=/bin/sh -e -c 'for i in $(seq 20); do ip link show tun0 >/dev/null 2>&1 && break; sleep 0.25; done; ip link show tun0 >/dev/null; ip link set dev tun0 mtu 1200'
 ExecStartPost=/sbin/ip route replace 0.0.0.0/1 dev tun0
 ExecStartPost=/sbin/ip route replace 128.0.0.0/1 dev tun0
+# The VPS itself must never be reachable through tun0. Whenever no modem
+# holds the /32 bypass route (boot, modem unplug, modem self-reset) the /1
+# routes above would swallow sslocal's own connection to the VPS, and every
+# looped flow spawns another: 4000 sockets and 2.2 GB in minutes, then the
+# box thrashes to death (2026-09-06). A high-metric unreachable /32 loses to
+# any modem route and makes the connect fail instantly when there is none.
+ExecStartPost=/sbin/ip route replace unreachable __VPS_IP__ metric 9999
 ExecStopPost=/bin/sh -c 'ip route del 0.0.0.0/1 dev tun0 2>/dev/null || true; ip route del 128.0.0.0/1 dev tun0 2>/dev/null || true'
 Restart=always
 RestartSec=5
