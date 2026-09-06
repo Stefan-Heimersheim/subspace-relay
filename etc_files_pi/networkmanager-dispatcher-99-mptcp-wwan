@@ -79,17 +79,31 @@ restore_vps_bypass_route() {
   done
 }
 
+# Drop endpoints whose address is no longer configured on their device.
+mptcp_gc() {
+  local addr id dev
+  while read -r addr id dev; do
+    [ -n "$id" ] || continue
+    ip -4 addr show dev "$dev" 2>/dev/null | grep -qF "inet $addr/" && continue
+    ip mptcp endpoint delete id "$id" ||
+      logger -t mptcp-wwan "endpoint delete id $id ($addr dev $dev) failed"
+  done < <(ip mptcp endpoint show |
+    awk '{a=$1;i="";d="";for(n=2;n<=NF;n++){if($n=="id")i=$(n+1);if($n=="dev")d=$(n+1)}print a,i,d}')
+}
+
 case "$ACTION" in
   up)
     [[ -z "$IP" || -z "$GW" ]] && exit 0
     while ip rule del table "$TABLE" 2>/dev/null; do : ; done
     ip rule add from "$IP" table "$TABLE" 2>/dev/null || true
     ip route replace default via "$GW" dev "$IFACE" table "$TABLE" 2>/dev/null || true
-    ip mptcp endpoint add "$IP" dev "$IFACE" subflow 2>/dev/null || true
+    mptcp_gc
+    ip mptcp endpoint add "$IP" dev "$IFACE" subflow ||
+      logger -t mptcp-wwan "endpoint add $IP dev $IFACE failed"
     ensure_vps_bypass_route
     ;;
   down|pre-down)
-    ip mptcp endpoint delete dev "$IFACE" 2>/dev/null || true
+    mptcp_gc
     while ip rule del table "$TABLE" 2>/dev/null; do : ; done
     ip route del "$VPS" dev "$IFACE" 2>/dev/null || true
     restore_vps_bypass_route
