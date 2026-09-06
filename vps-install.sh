@@ -10,6 +10,13 @@ SRC="$ROOT/etc_files_vps"
 . "$ROOT/lib.sh"
 require_root "$@"
 
+# Custom kernel (same release as the Pi's, amd64 packages): GitHub release
+# tag, `uname -r` of the VPS kernel, .deb version.
+KERNEL_RELEASE="${KERNEL_RELEASE:-v2-rc1}"
+KERNEL_VPS_VERSION="${KERNEL_VPS_VERSION:-6.12.107-mptcp-redundant}"
+KERNEL_PKG_VERSION="${KERNEL_PKG_VERSION:-6.12.107-1}"
+KERNEL_REPO="${KERNEL_REPO:-https://github.com/Stefan-Heimersheim/linux-mptcp-redundant}"
+
 generate_ss_password() {
     openssl rand -base64 32
 }
@@ -73,15 +80,98 @@ export VPS_IP SS_PORT SS_METHOD SS_PASSWORD VPS_WAN_IFACE
 note "shadowsocks-rust ssserver"
 install_ss_rust "${SS_RUST_VPS_ARCH:-x86_64-unknown-linux-gnu}" ssserver
 
+# grub_entry_for_kernel VERSION [GRUB_CFG] — print the GRUB menu entry path
+# ("<submenu id>><entry id>") of the non-recovery entry for that kernel, as
+# accepted by grub-set-default. Distro-neutral: matches "with Linux VERSION".
+grub_entry_for_kernel() {
+    local ver=$1 cfg=${2:-/boot/grub/grub.cfg}
+    [ -r "$cfg" ] || return 1
+    awk -v ver="$ver" '
+        function id(line) {
+            if (match(line, /\$menuentry_id_option .[^ ]+/) == 0) return ""
+            s = substr(line, RSTART, RLENGTH); sub(/^\$menuentry_id_option ./, "", s); sub(/.$/, "", s)
+            return s
+        }
+        /^submenu / { sub_id = id($0); next }
+        /^}/ { sub_id = ""; next }
+        /^[[:space:]]*menuentry / && index($0, "with Linux " ver) && !index($0, "recovery") {
+            e = id($0); if (e == "") next
+            print (sub_id != "" ? sub_id ">" e : e); exit
+        }
+    ' "$cfg"
+}
+
+# Make the custom kernel the GRUB default. Needed because GRUB otherwise boots
+# the highest version and the distro kernel (e.g. Ubuntu 26.04's 7.0) is newer
+# than 6.12.107. The stock kernel stays installed and selectable in the menu.
+grub_default_custom_kernel() {
+    local entry
+    if ! command -v grub-set-default >/dev/null 2>&1 || [ ! -r /boot/grub/grub.cfg ]; then
+        warn "no GRUB found; make ${KERNEL_VPS_VERSION} the default kernel with your bootloader/provider console"
+        return 0
+    fi
+    if grep -q '^GRUB_DEFAULT=' /etc/default/grub; then
+        sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=saved/' /etc/default/grub
+    else
+        echo 'GRUB_DEFAULT=saved' >> /etc/default/grub
+    fi
+    update-grub >/dev/null 2>&1 || warn "update-grub failed"
+    entry=$(grub_entry_for_kernel "$KERNEL_VPS_VERSION") || true
+    [ -n "$entry" ] || die "no GRUB entry for ${KERNEL_VPS_VERSION} in /boot/grub/grub.cfg"
+    grub-set-default "$entry"
+    log "GRUB default: ${KERNEL_VPS_VERSION} (${entry})"
+}
+
+# Install the custom MPTCP kernel next to the stock one and make it the GRUB
+# default; it is used from the next reboot on.
+install_custom_kernel() {
+    note "custom MPTCP kernel"
+    local image_deb headers_deb cache url_base
+    image_deb="linux-image-${KERNEL_VPS_VERSION}_${KERNEL_PKG_VERSION}_amd64.deb"
+    headers_deb="linux-headers-${KERNEL_VPS_VERSION}_${KERNEL_PKG_VERSION}_amd64.deb"
+    cache="/tmp/mptcp-kernel-${KERNEL_RELEASE}"
+    url_base="${KERNEL_REPO}/releases/download/${KERNEL_RELEASE}"
+
+    if [ "$(uname -r)" = "$KERNEL_VPS_VERSION" ]; then
+        log "running kernel already matches ${KERNEL_VPS_VERSION}"
+        grep -qw redundant /proc/sys/net/mptcp/available_schedulers 2>/dev/null \
+            || die "running kernel ${KERNEL_VPS_VERSION} has no 'redundant' MPTCP scheduler"
+        log "redundant MPTCP scheduler available"
+        return 0
+    fi
+    if [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VPS_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
+       [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VPS_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
+        log "kernel packages already installed (${KERNEL_PKG_VERSION})"
+        grub_default_custom_kernel
+        return 0
+    fi
+    install -d "$cache"
+    fetch_url "${url_base}/${image_deb}" "${cache}/${image_deb}"
+    fetch_url "${url_base}/${headers_deb}" "${cache}/${headers_deb}"
+    verify_sha256 "${cache}/${image_deb}" "${KERNEL_VPS_IMAGE_DEB_SHA256:-}" "$image_deb"
+    verify_sha256 "${cache}/${headers_deb}" "${KERNEL_VPS_HEADERS_DEB_SHA256:-}" "$headers_deb"
+    dpkg -i "${cache}/${image_deb}" "${cache}/${headers_deb}" || \
+        apt-get install -f -y || \
+        die "kernel package install failed; dpkg repair with apt-get install -f also failed"
+    grub_default_custom_kernel
+    log "installed ${KERNEL_VPS_VERSION}; it boots on the next reboot"
+}
+
+install_custom_kernel
+
 note "kernel MPTCP capability check"
 if [ "$(sysctl -n net.mptcp.enabled 2>/dev/null)" != "1" ]; then
     die "MPTCP is disabled in the kernel; this setup will not work."
+fi
+if ! grep -qw redundant /proc/sys/net/mptcp/available_schedulers 2>/dev/null; then
+    warn "running kernel $(uname -r) has no 'redundant' scheduler: downloads to the Pi are not redundant until the VPS boots ${KERNEL_VPS_VERSION}"
 fi
 
 note "sysctl"
 install_file "$SRC/sysctl-99-mptcp.conf"   /etc/sysctl.d/99-mptcp.conf
 install_file "$SRC/sysctl-99-forward.conf" /etc/sysctl.d/99-forward.conf
-sysctl --system >/dev/null
+# net.mptcp.scheduler=redundant is rejected by the stock kernel; not fatal.
+sysctl --system >/dev/null 2>&1 || warn "some sysctl settings were not applied (expected on the stock kernel: net.mptcp.scheduler=redundant)"
 
 note "ip mptcp limits"
 ip mptcp limits set subflow 4 add_addr_accepted 4 || true
@@ -119,6 +209,9 @@ cat <<EOF
 VPS install complete. Manual reminders:
   - Open TCP/UDP ${SS_PORT} in any cloud-provider firewall.
   - Confirm with: ss -lntup | grep :${SS_PORT}
+$( [ "$(uname -r)" = "$KERNEL_VPS_VERSION" ] || printf '%s\n' \
+"  - Reboot to start the MPTCP kernel ${KERNEL_VPS_VERSION} (the stock kernel
+    stays installed); net.mptcp.scheduler=redundant takes effect then." )
 
 Run this on the Pi:
    sudo env SS_PASSWORD=$(shell_quote "$SS_PASSWORD") VPS_IP=$(shell_quote "$VPS_IP") ./pi-install.sh
