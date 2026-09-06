@@ -57,6 +57,15 @@ install_file() {
     log "  installed: $dst"
 }
 
+# fetch_url URL DST — download with retry, idempotent if file exists & non-empty.
+fetch_url() {
+    local url=$1 dst=$2
+    if [ -s "$dst" ]; then log "  cached: $dst"; return 0; fi
+    log "  fetching $url"
+    curl -fL --retry 3 --retry-delay 2 -o "$dst" "$url" \
+        || die "failed to download $url"
+}
+
 verify_sha256() {
     local file=$1 expected=$2 label=${3:-$file}
     [ -n "$expected" ] || die "missing SHA256 pin for $label"

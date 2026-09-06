@@ -10,9 +10,10 @@ SRC="$ROOT/etc_files_pi"
 . "$ROOT/lib.sh"
 require_root "$@"
 
-KERNEL_RELEASE="${KERNEL_RELEASE:-v6.12.87}"
-KERNEL_VERSION="${KERNEL_VERSION:-6.12.87-v8-mptcp-redundant}"
-KERNEL_PKG_VERSION="${KERNEL_PKG_VERSION:-6.12.87-1}"
+# Custom kernel: GitHub release tag, `uname -r` of the Pi kernel, .deb version.
+KERNEL_RELEASE="${KERNEL_RELEASE:-v2-rc1}"
+KERNEL_VERSION="${KERNEL_VERSION:-6.12.107-v8-mptcp-redundant}"
+KERNEL_PKG_VERSION="${KERNEL_PKG_VERSION:-6.12.107-1}"
 KERNEL_REPO="${KERNEL_REPO:-https://github.com/Stefan-Heimersheim/linux-mptcp-redundant}"
 
 generate_psk() {
@@ -37,15 +38,6 @@ read_shadowsocks_client_config() {
             return 1
             ;;
     esac
-}
-
-# fetch_url URL DST — download with retry, idempotent if file exists & non-empty.
-fetch_url() {
-    local url=$1 dst=$2
-    if [ -s "$dst" ]; then log "  cached: $dst"; return 0; fi
-    log "  fetching $url"
-    curl -fL --retry 3 --retry-delay 2 -o "$dst" "$url" \
-        || die "failed to download $url"
 }
 
 # render_template_force SRC DST [MODE]
@@ -111,6 +103,9 @@ install_custom_kernel() {
 
     if [ "$(uname -r)" = "$KERNEL_VERSION" ]; then
         log "running kernel already matches ${KERNEL_VERSION}; skipping kernel download and package install"
+        grep -qw redundant /proc/sys/net/mptcp/available_schedulers 2>/dev/null \
+            || die "running kernel ${KERNEL_VERSION} has no 'redundant' MPTCP scheduler"
+        log "redundant MPTCP scheduler available"
     elif [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
          [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
         log "kernel packages already installed (${KERNEL_PKG_VERSION}); skipping kernel download"

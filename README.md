@@ -6,7 +6,9 @@ The Raspberry Pi will aggregate all links and redundantly send packages
 through all links; a VPS receives the redundant streams and merges them.
 
 This uses my [linux-mptcp-redundant](https://github.com/Stefan-Heimersheim/linux-mptcp-redundant/)
-as most existing kernels don't have a redundant MPTCP scheduler.
+as most existing kernels don't have a redundant MPTCP scheduler. Redundancy is
+a property of the *sender*, so both machines run that kernel: the Pi for
+uploads and the VPS for downloads (which is where almost all bytes flow).
 
 The functionality here is similar to [OpenMPTCPRouter](https://github.com/Ysurac/openmptcprouter),
 an OpenWRT-based project.
@@ -23,7 +25,14 @@ detects the public IP (`VPS_IP`), and prints the install command for the
 Raspberry Pi. That printed command contains the `SS_PASSWORD` and `VPS_IP`
 environment variables.
 
-The VPS installer treats disabled kernel MPTCP support as fatal.
+The VPS installer treats disabled kernel MPTCP support as fatal. It also
+installs the custom MPTCP kernel (amd64 packages from the same
+linux-mptcp-redundant release the Pi uses) next to the stock kernel and makes
+it the GRUB default (`GRUB_DEFAULT=saved` + `grub-set-default`; the distro
+kernel is usually a newer version and would otherwise win). The stock kernel
+stays selectable in the GRUB menu. `net.mptcp.scheduler=redundant` is
+applied once the new kernel runs. Without the custom kernel the VPS still works, but downloads to the Pi
+use the stock scheduler and are not redundant.
 
 ## Raspberry Pi setup
 
@@ -128,12 +137,16 @@ support.
 ## Updating pinned artifacts
 
 Downloaded root-installed artifacts are pinned by SHA256 in `config.sh`. When
-bumping `SS_RUST_VERSION`, `KERNEL_RELEASE`, or `KERNEL_PKG_VERSION`, download
-the new release artifacts from their upstream release pages and update:
+bumping `SS_RUST_VERSION`, or `KERNEL_RELEASE` / `KERNEL_VERSION` /
+`KERNEL_VPS_VERSION` / `KERNEL_PKG_VERSION` (defaults at the top of
+`pi-install.sh` and `vps-install.sh`), download the new release artifacts from
+their upstream release pages and update:
 `SS_RUST_SHA256_AARCH64_UNKNOWN_LINUX_GNU`,
-`SS_RUST_SHA256_X86_64_UNKNOWN_LINUX_GNU`, `KERNEL_IMAGE_DEB_SHA256`, and
-`KERNEL_HEADERS_DEB_SHA256`. The installers refuse to unpack or install an
-artifact whose checksum does not match the configured value.
+`SS_RUST_SHA256_X86_64_UNKNOWN_LINUX_GNU`, `KERNEL_IMAGE_DEB_SHA256`,
+`KERNEL_HEADERS_DEB_SHA256` (Pi, arm64) and `KERNEL_VPS_IMAGE_DEB_SHA256`,
+`KERNEL_VPS_HEADERS_DEB_SHA256` (VPS, amd64). The linux-mptcp-redundant
+release notes list all four checksums. The installers refuse to unpack or
+install an artifact whose checksum does not match the configured value.
 
 udev owns the Alcatel modem driver fix. The rule detects the affected USB
 interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
@@ -152,8 +165,8 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   validation.
 - `vps-install.sh` - idempotent VPS installer. Installs packages, detects or
   reads the VPS IP and WAN interface, creates or reuses the Shadowsocks password,
-  installs `ssserver`, applies sysctl/firewall config, and prints the Pi install
-  command.
+  installs `ssserver`, installs the custom MPTCP kernel, applies
+  sysctl/firewall config, and prints the Pi install command.
 - `pi-install.sh` - idempotent Pi installer. Installs packages, downloads and
   selects the custom MPTCP kernel, installs NetworkManager/dnsmasq/systemd/udev
   config, renders LTE/AP/Shadowsocks templates, and enables services.
@@ -211,4 +224,5 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
 - `etc_files_vps/shadowsocks-server.service` - systemd unit for the VPS
   Shadowsocks server.
 - `etc_files_vps/sysctl-99-forward.conf` - enables IPv4 forwarding on the VPS.
-- `etc_files_vps/sysctl-99-mptcp.conf` - enables MPTCP on the VPS.
+- `etc_files_vps/sysctl-99-mptcp.conf` - enables MPTCP on the VPS and selects
+  the redundant scheduler (accepted once the custom kernel is running).
