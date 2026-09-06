@@ -60,14 +60,30 @@ route can still point at `tun0`.
 
 ## Service ownership
 
-NetworkManager owns physical and client-facing link configuration on the Pi:
-`eth0`, LTE modem profiles, the Ethernet-like modem profiles `eth1` through
-`eth8`, and the optional `wlan0` AP profile. The LTE and Ethernet-like modem
-profiles are marked `never-default=true`; they supply addresses and gateways for
-their own source-routing tables, but they do not become the ordinary system
-default route. `eth0` is a static client LAN and is explicitly not an MPTCP
-subflow endpoint. `auto-lte` is the preferred GSM profile; APN-specific
-profiles are fallbacks.
+NetworkManager owns physical and client-facing link configuration on the Pi: the
+`downstream-eth0` client LAN, the GSM modem profiles, the Ethernet-like modem
+profiles `upstream-eth1` through `upstream-eth8`, and the optional
+`downstream-wlan0` AP profile. The upstream modem profiles are marked
+`never-default=true`; they supply addresses and gateways for their own
+source-routing tables, but they do not become the ordinary system default route.
+`downstream-eth0` is a static client LAN and is explicitly not an MPTCP subflow
+endpoint. The device-bound `upstream-dummy-cdc-wdm` profiles have top autoconnect
+priority (50), followed by `upstream-auto-cdc-wdm` (45) and the unbound
+`upstream-vodafone` (40).
+
+GSM APN choice was tested against EE and TalkMobile SIMs: both connect and carry
+real traffic with essentially any APN setting — a correct
+APN, a nonsense APN, no APN line at all, or provider auto-configuration. The only
+hard failure is an empty `apn=` value, which makes the modem refuse to activate.
+Given that, the preferred `upstream-dummy-cdc-wdm` profiles are device-bound with a
+placeholder `apn=dummy`, so each modem has its own working profile regardless of
+the SIM inserted. `upstream-auto-cdc-wdm` uses provider auto-configuration
+(`auto-config=true`) as the next choice; it requires the
+`mobile-broadband-provider-info` APN database, without which activation fails like
+an empty `apn=`. We keep the explicit `upstream-vodafone` profile as a last, unbound
+fallback because a Vodafone SIM was finnicky in the past and needed a specific APN
+(`wap.vodafone.co.uk`); the EE- and TalkMobile-specific profiles were dropped since
+the dummy/auto profiles cover them.
 
 `dnsmasq` owns DHCP for the wired client LAN on `eth0`. It gives clients
 addresses in `192.168.2.0/24`, default gateway `192.168.2.1`, and public DNS
@@ -143,19 +159,15 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
   config, renders LTE/AP/Shadowsocks templates, and enables services.
 - `etc_files_pi/NetworkManager.conf` - disables NetworkManager DNS/resolv.conf
   management and enables the keyfile plugin used by the connection profiles.
-- `etc_files_pi/auto-lte.nmconnection` - preferred generic GSM profile using
-  NetworkManager provider auto-configuration.
 - `etc_files_pi/boot-config.txt.snippet` - reference snippet for selecting the
   custom Pi kernel and initramfs in `/boot/firmware/config.txt`.
 - `etc_files_pi/dnsmasq.conf` - DHCP-only configuration for clients on `eth0`
   with gateway `192.168.2.1` and public DNS options.
-- `etc_files_pi/ee-lte.nmconnection.template` - EE GSM fallback profile for
-  `cdc-wdm1`.
-- `etc_files_pi/eth-lte.nmconnection.template` - NetworkManager Ethernet
-  profile template for modem links `eth1` through `eth8`.
-- `etc_files_pi/eth0.nmconnection` - NetworkManager profile for the wired
-  client LAN at `192.168.2.1/24`, with no default route and MPTCP explicitly
-  disabled.
+- `etc_files_pi/downstream-eth0.nmconnection` - NetworkManager profile for the
+  wired client LAN at `192.168.2.1/24`, with no default route and MPTCP
+  explicitly disabled.
+- `etc_files_pi/downstream-wlan0.nmconnection.template` - optional NetworkManager
+  WiFi AP profile using `${AP_SSID}`, `${AP_PSK}`, and `${AP_SUBNET}.1/24`.
 - `etc_files_pi/iptables-rules.v4` - persistent Pi NAT rules for `tun0`,
   TCP MSS clamping for the `tun0` path, and comments for NetworkManager-managed
   `wlan0` AP NAT.
@@ -177,14 +189,21 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
 - `etc_files_pi/sysctl-99-forward.conf` - enables IPv4 forwarding on the Pi.
 - `etc_files_pi/sysctl-99-mptcp.conf` - enables MPTCP on the Pi and selects the
   redundant scheduler.
-- `etc_files_pi/talkmobile-lte.nmconnection.template` - Talkmobile GSM fallback
-  profile for `cdc-wdm0`.
 - `etc_files_pi/udev-99-alcatel-mbim.rules` - udev rule that detects the
   affected Alcatel USB modem interface and runs the MBIM rebind helper.
-- `etc_files_pi/vodafone-lte.nmconnection.template` - Vodafone GSM fallback
-  profile for `cdc-wdm0`.
-- `etc_files_pi/wlan0-AP.nmconnection.template` - optional NetworkManager WiFi
-  AP profile using `${AP_SSID}`, `${AP_PSK}`, and `${AP_SUBNET}.1/24`.
+- `etc_files_pi/upstream-auto-cdc-wdm.nmconnection.template` - generic GSM
+  profile using NetworkManager provider auto-configuration, rendered once per
+  modem control port (`cdc-wdm0` through `cdc-wdm7`) with
+  `${MODEM_IFACE}`/`${MODEM_ID}` as `upstream-auto-cdc-wdm0` through
+  `upstream-auto-cdc-wdm7`.
+- `etc_files_pi/upstream-dummy-cdc-wdm.nmconnection.template` - preferred
+  device-bound GSM profile with a placeholder `apn=dummy`, rendered per modem
+  control port as `upstream-dummy-cdc-wdm0` through `upstream-dummy-cdc-wdm7`.
+- `etc_files_pi/upstream-eth.nmconnection.template` - NetworkManager Ethernet
+  profile template for modem links `eth1` through `eth8`, rendered as
+  `upstream-eth1` through `upstream-eth8`.
+- `etc_files_pi/upstream-vodafone.nmconnection` - Vodafone GSM fallback profile
+  with a hardcoded `wap.vodafone.co.uk` APN and no device binding.
 - `etc_files_vps/iptables-rules.v4` - persistent VPS NAT rule template; the
   installer replaces `ens3` with the detected or configured WAN interface.
 - `etc_files_vps/shadowsocks-server.json.template` - VPS `ssserver`

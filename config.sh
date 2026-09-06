@@ -22,11 +22,6 @@ KERNEL_IMAGE_DEB_SHA256="15dff0282bb5de93220d1d396d170a944b4631f9975b5b7c747b8ed
 KERNEL_HEADERS_DEB_SHA256="5172d7892052a2af0e5ddef38a9b1f3b5d1115ce7f03620c54a3c2a40b0b43e3"
 
 # ------- Pi-only -------
-# SIM APNs. Empty string disables installing that profile.
-TALKMOBILE_APN="talkmobile.co.uk"
-EE_APN="eesecure"   # NOT "everywhere"; that APN refuses IPv4 on tested SIMs.
-VODAFONE_APN="wap.vodafone.co.uk"
-
 # WiFi access point. Generated random PSK if left blank.
 AP_SSID="PiMPTCP"
 AP_PSK=""           # leave blank for openssl-generated random; will be saved into the .nmconnection

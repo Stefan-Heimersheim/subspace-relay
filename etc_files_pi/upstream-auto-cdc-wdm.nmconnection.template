@@ -1,12 +1,12 @@
 [connection]
-id=vodafone-lte
+id=${MODEM_ID}
 type=gsm
-interface-name=cdc-wdm0
+interface-name=${MODEM_IFACE}
 autoconnect=true
-autoconnect-priority=40
+autoconnect-priority=45
 
 [gsm]
-apn=${VODAFONE_APN}
+auto-config=true
 
 [ipv4]
 method=auto

@@ -1,5 +1,5 @@
 [connection]
-id=eth0
+id=downstream-eth0
 type=ethernet
 interface-name=eth0
 autoconnect=true

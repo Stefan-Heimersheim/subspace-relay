@@ -1,12 +1,12 @@
 [connection]
-id=auto-lte
+id=${MODEM_ID}
 type=gsm
+interface-name=${MODEM_IFACE}
 autoconnect=true
-autoconnect-priority=30
-multi-connect=3
+autoconnect-priority=50
 
 [gsm]
-auto-config=true
+apn=dummy
 
 [ipv4]
 method=auto

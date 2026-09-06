@@ -1,12 +1,11 @@
 [connection]
-id=talkmobile-lte
+id=upstream-vodafone
 type=gsm
-interface-name=cdc-wdm0
 autoconnect=true
 autoconnect-priority=40
 
 [gsm]
-apn=${TALKMOBILE_APN}
+apn=wap.vodafone.co.uk
 
 [ipv4]
 method=auto
