@@ -13,6 +13,9 @@ ExecStart=/usr/local/bin/sslocal -c /etc/shadowsocks/client.json
 ExecStartPost=/bin/sh -e -c 'for i in $(seq 20); do ip link show tun0 >/dev/null 2>&1 && break; sleep 0.25; done; ip link show tun0 >/dev/null; ip link set dev tun0 mtu 1200'
 ExecStartPost=/sbin/ip route replace 0.0.0.0/1 dev tun0
 ExecStartPost=/sbin/ip route replace 128.0.0.0/1 dev tun0
+# If the VPS is reachable through tun0 it creates loops (thousands of sockets,
+# large memory usage). This high-metric unreachable route avoids this issue.
+ExecStartPost=/sbin/ip route replace unreachable __VPS_IP__ metric 9999
 ExecStopPost=/bin/sh -c 'ip route del 0.0.0.0/1 dev tun0 2>/dev/null || true; ip route del 128.0.0.0/1 dev tun0 2>/dev/null || true'
 Restart=always
 RestartSec=5

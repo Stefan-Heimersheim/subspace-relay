@@ -174,7 +174,10 @@ install_persistent_config() {
 
     note "systemd units"
     install_file "$SRC/mptcp-limits.service"        /etc/systemd/system/mptcp-limits.service
-    install_file "$SRC/shadowsocks-client.service"  /etc/systemd/system/shadowsocks-client.service
+    local ss_unit_tmp; ss_unit_tmp=$(mktemp)
+    sed "s|__VPS_IP__|$VPS_IP|g" "$SRC/shadowsocks-client.service" > "$ss_unit_tmp"
+    install_file "$ss_unit_tmp" /etc/systemd/system/shadowsocks-client.service
+    rm -f "$ss_unit_tmp"
     systemctl daemon-reload
     systemctl disable mptcp-fulltunnel.service >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/mptcp-fulltunnel.service
