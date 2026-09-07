@@ -12,9 +12,9 @@ require_root "$@"
 
 # Custom kernel (same release as the Pi's, amd64 packages): GitHub release
 # tag, `uname -r` of the VPS kernel, .deb version.
-KERNEL_RELEASE="${KERNEL_RELEASE:-v2-rc1}"
+KERNEL_RELEASE="${KERNEL_RELEASE:-v6.12.107-2}"
 KERNEL_VPS_VERSION="${KERNEL_VPS_VERSION:-6.12.107-mptcp-redundant}"
-KERNEL_PKG_VERSION="${KERNEL_PKG_VERSION:-6.12.107-1}"
+KERNEL_PKG_VERSION="${KERNEL_PKG_VERSION:-6.12.107-2}"
 KERNEL_REPO="${KERNEL_REPO:-https://github.com/Stefan-Heimersheim/linux-mptcp-redundant}"
 
 generate_ss_password() {
