@@ -5,10 +5,9 @@ devices to a Raspberry Pi with multiple e.g. LTE internet connections.
 The Raspberry Pi will aggregate all links and redundantly send packages
 through all links; a VPS receives the redundant streams and merges them.
 
-This uses my [linux-mptcp-redundant](https://github.com/Stefan-Heimersheim/linux-mptcp-redundant/)
-as most existing kernels don't have a redundant MPTCP scheduler. Redundancy is
-a property of the *sender*, so both machines run that kernel: the Pi for
-uploads and the VPS for downloads (which is where almost all bytes flow).
+Requires [linux-mptcp-redundant](https://github.com/Stefan-Heimersheim/linux-mptcp-redundant/)
+or another kernel with a redundant MPTCP scheduler, on both the router (e.g.
+Raspberry Pi) and the server (e.g. VPS).
 
 The functionality here is similar to [OpenMPTCPRouter](https://github.com/Ysurac/openmptcprouter),
 an OpenWRT-based project.
@@ -20,19 +19,10 @@ On a VPS (tested with Debian 13 and Ubuntu 24.04) clone this repo and run
 sudo ./vps-install.sh
 ```
 
-It installs packages, generates a Shadowsocks password (`SS_PASSWORD`),
+It installs the custom kernel, packages, generates a Shadowsocks password (`SS_PASSWORD`),
 detects the public IP (`VPS_IP`), and prints the install command for the
 Raspberry Pi. That printed command contains the `SS_PASSWORD` and `VPS_IP`
 environment variables.
-
-The VPS installer treats disabled kernel MPTCP support as fatal. It also
-installs the custom MPTCP kernel (amd64 packages from the same
-linux-mptcp-redundant release the Pi uses) next to the stock kernel and makes
-it the GRUB default (`GRUB_DEFAULT=saved` + `grub-set-default`; the distro
-kernel is usually a newer version and would otherwise win). The stock kernel
-stays selectable in the GRUB menu. `net.mptcp.scheduler=redundant` is
-applied once the new kernel runs. Without the custom kernel the VPS still works, but downloads to the Pi
-use the stock scheduler and are not redundant.
 
 ## Raspberry Pi setup
 
@@ -136,17 +126,9 @@ support.
 
 ## Updating pinned artifacts
 
-Downloaded root-installed artifacts are pinned by SHA256 in `config.sh`. When
-bumping `SS_RUST_VERSION`, or `KERNEL_RELEASE` / `KERNEL_VERSION` /
-`KERNEL_VPS_VERSION` / `KERNEL_PKG_VERSION` (defaults at the top of
-`pi-install.sh` and `vps-install.sh`), download the new release artifacts from
-their upstream release pages and update:
-`SS_RUST_SHA256_AARCH64_UNKNOWN_LINUX_GNU`,
-`SS_RUST_SHA256_X86_64_UNKNOWN_LINUX_GNU`, `KERNEL_IMAGE_DEB_SHA256`,
-`KERNEL_HEADERS_DEB_SHA256` (Pi, arm64) and `KERNEL_VPS_IMAGE_DEB_SHA256`,
-`KERNEL_VPS_HEADERS_DEB_SHA256` (VPS, amd64). The linux-mptcp-redundant
-release notes list all four checksums. The installers refuse to unpack or
-install an artifact whose checksum does not match the configured value.
+Downloaded root-installed artifacts are pinned in `config.sh`. When bumping
+`SS_RUST_VERSION` or the `KERNEL_*` release and version variables, update the
+matching `*_SHA256` values from the upstream release notes.
 
 udev owns the Alcatel modem driver fix. The rule detects the affected USB
 interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to

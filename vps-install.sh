@@ -10,13 +10,6 @@ SRC="$ROOT/etc_files_vps"
 . "$ROOT/lib.sh"
 require_root "$@"
 
-# Custom kernel (same release as the Pi's, amd64 packages): GitHub release
-# tag, `uname -r` of the VPS kernel, .deb version.
-KERNEL_RELEASE="${KERNEL_RELEASE:-v6.12.107-2}"
-KERNEL_VPS_VERSION="${KERNEL_VPS_VERSION:-6.12.107-mptcp-redundant}"
-KERNEL_PKG_VERSION="${KERNEL_PKG_VERSION:-6.12.107-2}"
-KERNEL_REPO="${KERNEL_REPO:-https://github.com/Stefan-Heimersheim/linux-mptcp-redundant}"
-
 generate_ss_password() {
     openssl rand -base64 32
 }
@@ -101,9 +94,7 @@ grub_entry_for_kernel() {
     ' "$cfg"
 }
 
-# Make the custom kernel the GRUB default. Needed because GRUB otherwise boots
-# the highest version and the distro kernel (e.g. Ubuntu 26.04's 7.0) is newer
-# than 6.12.107. The stock kernel stays installed and selectable in the menu.
+# Make the custom kernel the GRUB default.
 grub_default_custom_kernel() {
     local entry
     if ! command -v grub-set-default >/dev/null 2>&1 || [ ! -r /boot/grub/grub.cfg ]; then
@@ -122,8 +113,7 @@ grub_default_custom_kernel() {
     log "GRUB default: ${KERNEL_VPS_VERSION} (${entry})"
 }
 
-# Install the custom MPTCP kernel next to the stock one and make it the GRUB
-# default; it is used from the next reboot on.
+# Install the custom MPTCP kernel and make it the GRUB default
 install_custom_kernel() {
     note "custom MPTCP kernel"
     local image_deb headers_deb cache url_base
@@ -170,7 +160,6 @@ fi
 note "sysctl"
 install_file "$SRC/sysctl-99-mptcp.conf"   /etc/sysctl.d/99-mptcp.conf
 install_file "$SRC/sysctl-99-forward.conf" /etc/sysctl.d/99-forward.conf
-# net.mptcp.scheduler=redundant is rejected by the stock kernel; not fatal.
 sysctl --system >/dev/null 2>&1 || warn "some sysctl settings were not applied (expected on the stock kernel: net.mptcp.scheduler=redundant)"
 
 note "ip mptcp limits"

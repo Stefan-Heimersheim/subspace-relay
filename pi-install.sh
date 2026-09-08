@@ -10,12 +10,6 @@ SRC="$ROOT/etc_files_pi"
 . "$ROOT/lib.sh"
 require_root "$@"
 
-# Custom kernel: GitHub release tag, `uname -r` of the Pi kernel, .deb version.
-KERNEL_RELEASE="${KERNEL_RELEASE:-v6.12.107-2}"
-KERNEL_VERSION="${KERNEL_VERSION:-6.12.107-v8-mptcp-redundant}"
-KERNEL_PKG_VERSION="${KERNEL_PKG_VERSION:-6.12.107-2}"
-KERNEL_REPO="${KERNEL_REPO:-https://github.com/Stefan-Heimersheim/linux-mptcp-redundant}"
-
 generate_psk() {
     openssl rand -base64 18 | tr -d '+/='
 }
