@@ -201,6 +201,10 @@ install_persistent_config() {
     # Render nmconnection profiles. The keyfile plugin requires mode 0600.
     install_file "$SRC/upstream-vodafone.nmconnection" \
         /etc/NetworkManager/system-connections/upstream-vodafone.nmconnection 0600
+    # SIM-matched carrier profile. Tesco (O2) rejects the dummy/auto APNs, so it
+    # needs its real APN and must outrank them; see the README.
+    install_file "$SRC/upstream-tesco.nmconnection" \
+        /etc/NetworkManager/system-connections/upstream-tesco.nmconnection 0600
     render_template \
         "$SRC/downstream-wlan0.nmconnection.template" \
         /etc/NetworkManager/system-connections/downstream-wlan0.nmconnection 0600
