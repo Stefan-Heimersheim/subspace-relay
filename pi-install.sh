@@ -87,13 +87,8 @@ install_custom_kernel() {
     url_base="${KERNEL_REPO}/releases/download/${KERNEL_RELEASE}"
     boot_config="/boot/firmware/config.txt"
 
-    if [ "$(uname -r)" = "$KERNEL_VERSION" ]; then
-        log "running kernel already matches ${KERNEL_VERSION}; skipping kernel download and package install"
-        grep -qw redundant /proc/sys/net/mptcp/available_schedulers 2>/dev/null \
-            || die "running kernel ${KERNEL_VERSION} has no 'redundant' MPTCP scheduler"
-        log "redundant MPTCP scheduler available"
-    elif [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
-         [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
+    if [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
+       [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
         log "kernel packages already installed (${KERNEL_PKG_VERSION}); skipping kernel download"
     else
         install -d "$cache"
