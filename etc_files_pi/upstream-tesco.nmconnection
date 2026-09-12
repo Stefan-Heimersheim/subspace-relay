@@ -1,0 +1,26 @@
+[connection]
+id=upstream-tesco
+type=gsm
+autoconnect=true
+autoconnect-priority=55
+
+# Tesco Mobile (O2 MVNO, MCCMNC 23410) needs its real APN; the dummy/auto
+# profiles cannot work on this network, so this profile outranks them. Matched
+# on the SIM rather than bound to a cdc-wdmN port, so it follows the SIM to
+# whichever modem holds it and is never tried on a non-Tesco SIM. The APN must
+# also be the modem's LTE attach APN - see the README.
+[gsm]
+apn=prepay.tesco-mobile.com
+sim-operator-id=23410
+
+[ipv4]
+method=auto
+never-default=true
+route-metric=700
+
+[ipv6]
+addr-gen-mode=default
+method=auto
+never-default=true
+
+[proxy]

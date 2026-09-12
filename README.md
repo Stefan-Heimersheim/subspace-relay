@@ -66,23 +66,34 @@ profiles `upstream-eth1` through `upstream-eth8`, and the optional
 `never-default=true`; they supply addresses and gateways for their own
 source-routing tables, but they do not become the ordinary system default route.
 `downstream-eth0` is a static client LAN and is explicitly not an MPTCP subflow
-endpoint. The device-bound `upstream-dummy-cdc-wdm` profiles have top autoconnect
-priority (50), followed by `upstream-auto-cdc-wdm` (45) and the unbound
-`upstream-vodafone` (40).
+endpoint. The SIM-matched `upstream-tesco` profile has top autoconnect priority
+(55), followed by the device-bound `upstream-dummy-cdc-wdm` profiles (50),
+`upstream-auto-cdc-wdm` (45) and the unbound `upstream-vodafone` (40).
 
-GSM APN choice was tested against EE and TalkMobile SIMs: both connect and carry
-real traffic with essentially any APN setting — a correct
-APN, a nonsense APN, no APN line at all, or provider auto-configuration. The only
-hard failure is an empty `apn=` value, which makes the modem refuse to activate.
-Given that, the preferred `upstream-dummy-cdc-wdm` profiles are device-bound with a
-placeholder `apn=dummy`, so each modem has its own working profile regardless of
-the SIM inserted. `upstream-auto-cdc-wdm` uses provider auto-configuration
-(`auto-config=true`) as the next choice; it requires the
-`mobile-broadband-provider-info` APN database, without which activation fails like
-an empty `apn=`. We keep the explicit `upstream-vodafone` profile as a last, unbound
-fallback because a Vodafone SIM was finnicky in the past and needed a specific APN
-(`wap.vodafone.co.uk`); the EE- and TalkMobile-specific profiles were dropped since
-the dummy/auto profiles cover them.
+GSM APN tolerance varies by carrier, so the profiles are layered. EE and
+TalkMobile connect and carry real traffic with essentially any APN setting — a
+correct APN, a nonsense APN, no APN line at all, or provider auto-configuration;
+the only hard failure there is an empty `apn=` value, which makes the modem
+refuse to activate. For those SIMs the preferred `upstream-dummy-cdc-wdm`
+profiles are device-bound with a placeholder `apn=dummy`, so each modem has its
+own working profile regardless of the SIM inserted, and `upstream-auto-cdc-wdm`
+uses provider auto-configuration (`auto-config=true`) as the next choice; that
+one requires the `mobile-broadband-provider-info` APN database, without which
+activation fails like an empty `apn=`.
+
+O2 and its MVNOs are strict and need the exact APN in two places: as the
+profile's `apn=` *and* as the modem's own LTE attach APN, which lives in the
+modem's non-volatile profile table and is not set by NetworkManager. With the
+wrong attach APN the network silently ignores every PDN activation request and
+the modem reports a bare `MBIM status error: Failure`. Hence `upstream-tesco`,
+which carries the real `prepay.tesco-mobile.com` APN and outranks the
+dummy/auto tiers; it is matched on `sim-operator-id=23410` rather than bound to a
+control port, so it follows the SIM between modems and is never tried on another
+carrier's SIM. `upstream-vodafone` remains an unbound last-resort profile because
+a Vodafone SIM was finnicky in the past and needed a specific APN
+(`wap.vodafone.co.uk`); the EE- and TalkMobile-specific profiles were dropped
+since the dummy/auto profiles cover them. See the section below for the attach-APN
+procedure and the Alcatel modem quirks.
 
 `dnsmasq` owns DHCP for the wired client LAN on `eth0`. It gives clients
 addresses in `192.168.2.0/24`, default gateway `192.168.2.1`, and public DNS
@@ -124,15 +135,147 @@ there is no separate UDP relay service. ICMP is not given a separate owner in
 this repo, so its behavior is whatever the TUN/tunnel path and kernel routing
 support.
 
+## Modem profile storage (NV) and the attach APN
+
+Each modem keeps its own settings in non-volatile storage (NV) inside the stick —
+a small flash area holding, among other things, a table of 3GPP data profiles.
+NV is owned by the modem, not by the Pi: changes there survive reboots, replugs
+and reinstalls, and they travel with the stick rather than with the SIM. Nothing
+in this repo writes NV during installation, so a stick carries whatever its
+previous owner left behind.
+
+Both Alcatel sticks currently hold four 3GPP profiles, numbered 1-4. Profile 1 is
+the *default profile* (QMI default profile number 1), and that is the one the
+modem uses for its **LTE attach**: on LTE the modem must name an APN at the
+moment it attaches, before NetworkManager is involved at all, and the network
+creates a default EPS bearer for it. NetworkManager's `apn=` only applies to the
+connect request that follows. Both sticks shipped with profile 1 set to
+`latitude.bsci.com` (an M2M APN from their previous life); profiles 2-4 hold
+further leftovers (`3300.bsci.com`, an empty APN, `uk.lebara.mobi`) and are
+unused here.
+
+Read the attach APN and the profile table with `qmicli` — these sticks expose QMI
+through the MBIM port, and `-p` shares that port with the running ModemManager:
+
+```bash
+sudo qmicli -p -d /dev/cdc-wdmN --device-open-mbim --wds-get-lte-attach-parameters
+sudo qmicli -p -d /dev/cdc-wdmN --device-open-mbim --wds-get-profile-list=3gpp
+```
+
+Change the attach APN by modifying profile 1, then reboot the modem so it
+re-attaches (a radio or `mmcli --disable/--enable` cycle is not enough, and
+`mmcli --reset` wedges this firmware — see "Alcatel modem quirks" below):
+
+```bash
+sudo qmicli -p -d /dev/cdc-wdmN --device-open-mbim \
+  --wds-modify-profile="3gpp,1,apn=<apn>,pdp-type=IPV4V6,auth=NONE"
+# then, on one of that modem's AT ports, reboot it:
+printf 'AT+CFUN=1,1\r' > /dev/ttyUSBn
+```
+
+Which settings each carrier needs, as tested on these modems:
+
+| SIM | NetworkManager profile | Attach APN (NV profile 1) |
+| --- | --- | --- |
+| EE (MCCMNC 23430) | any non-empty APN; `upstream-dummy-cdc-wdmN` (`apn=dummy`) works | irrelevant — connects fine with the leftover `latitude.bsci.com` |
+| TalkMobile (23415, Vodafone MVNO) | any non-empty APN, as EE | irrelevant — connects fine with the leftover `latitude.bsci.com` |
+| Tesco Mobile (23410, O2 MVNO) | `upstream-tesco`, exactly `prepay.tesco-mobile.com`; `dummy` and `mobile.o2.co.uk` both fail | must also be `prepay.tesco-mobile.com`, or every connect fails |
+| Vodafone (23415) | `upstream-vodafone`, `wap.vodafone.co.uk` | not tested |
+
+No username or password is needed on any of them, including Tesco, whose
+published `tescowap`/`password` credentials are not required (`auth=NONE`
+connects). An empty `apn=` always fails. Because the attach APN lives in the
+stick and not on the SIM, moving a SIM to another modem can require setting
+profile 1 on that modem too.
+
+Note that Vodafone and its MVNO TalkMobile share MCCMNC 23415, so
+`sim-operator-id` cannot distinguish them; that is why `upstream-vodafone` stays
+an unbound low-priority fallback rather than being SIM-matched like
+`upstream-tesco`. A TalkMobile SIM connects on the dummy profile long before the
+Vodafone profile is reached.
+
+## Alcatel modem quirks and recovery
+
+The upstream modems are Alcatel `1bbb:00b6` sticks (Qualcomm MDM9607, firmware
+`MPSS.JO.2.0.2.c1.7-00004-9607_`), driven by ModemManager's `generic` plugin over
+MBIM. They have a number of sharp edges.
+
+udev owns the Alcatel modem driver fix. The rule detects the affected USB
+interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
+`cdc_mbim` so ModemManager/NetworkManager can bring it up as an MBIM modem.
+
+**Identify a stick by its USB path, not by its modem index or `cdc-wdmN` name.**
+Both change on every re-enumeration, and a debug session can easily walk a modem
+index from 1 to 3. Map the stable paths with:
+
+```bash
+for m in $(mmcli -L | grep -o 'Modem/[0-9]*' | cut -d/ -f2); do
+  echo "modem $m: $(mmcli -m $m | grep -m1 'device:' | grep -o '1-1\.[0-9.]*')"
+done
+```
+
+**QMI is available through the MBIM port.** Use `qmicli --device-open-mbim` with
+`-p` so it shares the port with the running ModemManager rather than fighting it.
+This is how the NV profile table above is read and written.
+
+**AT ports: use them directly.** `mmcli --command` is refused unless
+ModemManager runs in debug mode (`Unauthorized: Operation only allowed in debug
+mode`). ModemManager holds the AT ports open but does not poll them on an MBIM
+modem, so writing to them directly is tolerated. Of each stick's three ttys, two
+answer AT and one does not; map them with:
+
+```bash
+readlink -f /sys/class/tty/ttyUSB*/device | grep -o '1-1\.[0-9.]*'
+```
+
+**Never use `mmcli -m N --reset`.** It wedges this firmware: the modem comes back
+in offline mode (`AT+CFUN?` returns `+CFUN: 7`, QMI operating mode `offline`,
+MBIM software radio `off`) and then refuses every way back — `mmcli --enable`,
+`--set-power-state-on`, `mbimcli --set-radio-state=on`,
+`qmicli --dms-set-operating-mode=online` and `AT+CFUN=1` all fail with
+`Invalid transition`, `Failure` or `+CME ERROR: 4`. Toggling
+`/sys/bus/usb/devices/<path>/authorized` re-enumerates the device on the host but
+does **not** cut VBUS, so the firmware keeps running and stays wedged.
+
+**`AT+CFUN=1,1` is the way out**, and also the way to force a re-attach after
+changing the attach APN. It reboots the modem: the device drops off the USB bus
+and comes back about 30 seconds later, registered and attached. A physical
+unplug/replug does the same.
+
+**Getting the real reason a connect failed.** NetworkManager only ever reports
+`Unknown error`, and ModemManager at default verbosity only `MBIM status error:
+Failure`. The network's reject cause is visible solely in debug logs:
+
+```bash
+sudo mmcli -G DEBUG
+CURSOR=$(journalctl -u ModemManager -n0 --show-cursor | grep -o 'cursor: .*' | cut -d' ' -f2)
+sudo mmcli -m N --timeout=90 --simple-connect="apn=<apn>,ip-type=ipv4"
+sudo mmcli -G INFO
+journalctl -u ModemManager --after-cursor="$CURSOR" | grep -iE "nw error|activated|status error"
+```
+
+A line such as `session ID '0': deactivated (requested IP type: ipv4, activated
+IP type: default, nw error: none)` means the network sent no reject cause at all
+and simply never answered the PDN activation request — the signature of a wrong
+attach APN, as opposed to an auth, subscription or IP-family problem, which all
+produce a non-zero `nw error`.
+
+**Debugging one modem without disturbing the relay.** Never restart
+ModemManager or NetworkManager wholesale: the other modem is carrying live
+upstream traffic. Instead set `connection.autoconnect no` on every profile that
+can bind to that port (`upstream-dummy-cdc-wdmN`, `upstream-auto-cdc-wdmN` and
+the unbound carrier profiles), `nmcli device disconnect cdc-wdmN`, then clear
+stale bearers with `mmcli -m N --simple-disconnect` and
+`--delete-bearer=<path>`. Restore autoconnect afterwards. Left alone, NM retries
+every few seconds, bearers pile up, and the modem starts answering
+`MBIM status error: Busy` to new requests while an earlier connect is still in
+flight — a symptom that masks the real failure.
+
 ## Updating pinned artifacts
 
 Downloaded root-installed artifacts are pinned in `config.sh`. When bumping
 `SS_RUST_VERSION` or the `KERNEL_*` release and version variables, update the
 matching `*_SHA256` values from the upstream release notes.
-
-udev owns the Alcatel modem driver fix. The rule detects the affected USB
-interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
-`cdc_mbim` so ModemManager/NetworkManager can bring it up as an MBIM modem.
 
 ## File inventory
 
@@ -197,6 +340,9 @@ interface and runs `alcatel-mbim-fix`, which rebinds the device from `option` to
 - `etc_files_pi/upstream-eth.nmconnection.template` - NetworkManager Ethernet
   profile template for modem links `eth1` through `eth8`, rendered as
   `upstream-eth1` through `upstream-eth8`.
+- `etc_files_pi/upstream-tesco.nmconnection` - Tesco Mobile GSM profile with the
+  required `prepay.tesco-mobile.com` APN, matched on `sim-operator-id=23410`
+  instead of a control port, at autoconnect priority 55.
 - `etc_files_pi/upstream-vodafone.nmconnection` - Vodafone GSM fallback profile
   with a hardcoded `wap.vodafone.co.uk` APN and no device binding.
 - `etc_files_vps/iptables-rules.v4` - persistent VPS NAT rule template; the
