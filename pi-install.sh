@@ -46,12 +46,14 @@ render_template_force() {
 
 ENV_VPS_IP="${VPS_IP:-}"
 ENV_SS_PASSWORD="${SS_PASSWORD:-}"
+ENV_AP_PSK="${AP_PSK:-}"
 
 CFG="$ROOT/config.sh"
 [ -e "$CFG" ] || die "missing $CFG"
 . "$CFG"
 [ -n "$ENV_VPS_IP" ] && VPS_IP="$ENV_VPS_IP"
 [ -n "$ENV_SS_PASSWORD" ] && SS_PASSWORD="$ENV_SS_PASSWORD"
+[ -n "$ENV_AP_PSK" ] && AP_PSK="$ENV_AP_PSK"
 
 # Fill defaults / recover from live config if blank.
 if [ -z "${VPS_IP:-}" ]; then
