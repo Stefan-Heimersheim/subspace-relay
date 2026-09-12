@@ -55,7 +55,10 @@ The Pi also keeps a direct route to the VPS public IP via one LTE interface.
 That route is deliberately outside `tun0`; otherwise the tunnel transport would
 try to reach the VPS through itself and loop. Per-LTE source-routing tables let
 MPTCP open subflows over each `wwan*` link while the main client-facing default
-route can still point at `tun0`.
+route can still point at `tun0`. Which modem holds that direct route decides
+which carrier every tunnel connection's *initial* subflow uses, and on a carrier
+that strips MPTCP that silently turns the whole tunnel into single-path TCP; see
+"Carrier middleboxes and MPTCP" below.
 
 ## Service ownership
 
@@ -175,12 +178,12 @@ printf 'AT+CFUN=1,1\r' > /dev/ttyUSBn
 
 Which settings each carrier needs, as tested on these modems:
 
-| SIM | NetworkManager profile | Attach APN (NV profile 1) |
-| --- | --- | --- |
-| EE (MCCMNC 23430) | any non-empty APN; `upstream-dummy-cdc-wdmN` (`apn=dummy`) works | irrelevant — connects fine with the leftover `latitude.bsci.com` |
-| TalkMobile (23415, Vodafone MVNO) | any non-empty APN, as EE | irrelevant — connects fine with the leftover `latitude.bsci.com` |
-| Tesco Mobile (23410, O2 MVNO) | `upstream-tesco`, exactly `prepay.tesco-mobile.com`; `dummy` and `mobile.o2.co.uk` both fail | must also be `prepay.tesco-mobile.com`, or every connect fails |
-| Vodafone (23415) | `upstream-vodafone`, `wap.vodafone.co.uk` | not tested |
+| SIM | NetworkManager profile | Attach APN (NV profile 1) | MPTCP passes? |
+| --- | --- | --- | --- |
+| EE (MCCMNC 23430) | any non-empty APN; `upstream-dummy-cdc-wdmN` (`apn=dummy`) works | irrelevant — connects fine with the leftover `latitude.bsci.com` | yes, on every port tested |
+| TalkMobile (23415, Vodafone MVNO) | any non-empty APN, as EE | irrelevant — connects fine with the leftover `latitude.bsci.com` | yes, on every port tested |
+| Tesco Mobile (23410, O2 MVNO) | `upstream-tesco`, exactly `prepay.tesco-mobile.com`; `dummy` and `mobile.o2.co.uk` both fail | must also be `prepay.tesco-mobile.com`, or every connect fails | **no** — O2's TCP proxy strips it on all but 7 ports, see below |
+| Vodafone (23415) | `upstream-vodafone`, `wap.vodafone.co.uk` | not tested | not tested |
 
 No username or password is needed on any of them, including Tesco, whose
 published `tescowap`/`password` credentials are not required (`auth=NONE`
@@ -193,6 +196,107 @@ Note that Vodafone and its MVNO TalkMobile share MCCMNC 23415, so
 an unbound low-priority fallback rather than being SIM-matched like
 `upstream-tesco`. A TalkMobile SIM connects on the dummy profile long before the
 Vodafone profile is reached.
+
+## Carrier middleboxes and MPTCP
+
+Not every mobile network passes MPTCP, and a network that does not breaks this
+setup silently. Tested on 2026-09-12 with the three SIMs above against the VPS
+and against `check.mptcp.dev`:
+
+- **EE and TalkMobile pass MPTCP untouched**, both as the initial subflow
+  (`MP_CAPABLE`) and as a joined subflow (`MP_JOIN`), on every port tried. A
+  connection opened over one of them with the other joining gives a genuinely
+  redundant two-path connection.
+- **O2, and therefore Tesco Mobile, runs a transparent TCP proxy on IPv4** that
+  terminates nearly every TCP connection. The SYN-ACK the Pi sees comes from the
+  proxy, not from the VPS: it carries the proxy's own TCP fingerprint (`mss 1348,
+  wscale 12, win 65535` where the VPS itself sends `wscale 7, win 65160`) and
+  every MPTCP option is gone. The kernel then does what RFC 8684 requires and
+  falls back to plain TCP, without any log message. Even a SYN to a port nothing
+  listens on "connects" from a Tesco SIM, because the proxy accepts it before
+  ever talking to the server. `MP_JOIN` is hit the same way: a join SYN sent over the
+  O2 link comes back without the join option and the kernel resets that subflow,
+  so an O2 modem can never be added as a second path either. The proxy is
+  IPv4-only as far as we can tell, but the Tesco bearer returns no IPv6
+  configuration even when asked for `ipv4v6`, so that is no escape.
+
+### Why this makes redundancy fail instead of merely degrading
+
+`sslocal` opens a new MPTCP connection to the VPS for every client flow. The
+initial subflow of each follows the direct VPS bypass route in the main table,
+and the dispatcher hands that route to whichever modem came up first and leaves
+it there. If that modem is on O2, *every* tunnel connection is downgraded to
+single-path TCP over O2 and the other modems' endpoints never get a join,
+because a fallen-back connection cannot add subflows. Unplugging the O2 modem
+then drops every client connection while unplugging the others changes nothing,
+which is exactly what a redundancy test on 2026-09-12 showed. With an EE or
+TalkMobile modem holding the bypass route the tunnel is MPTCP again, but the O2
+modem still contributes nothing.
+
+### How to tell
+
+The MPTCP MIB counters give the answer without a packet capture. On the Pi:
+
+```bash
+nstat -az | grep -E 'MPCapableSYNTX|MPCapableSYNACKRX|MPCapableFallbackSYNACK|MPJoinSynTx|MPJoinSynAckRx'
+```
+
+A healthy Pi has `MPCapableSYNACKRX` close to `MPCapableSYNTX` and a growing
+`MPJoinSynAckRx`. The broken state looks like `SYNTX 196, SYNACKRX 0,
+FallbackSYNACK 175, MPJoinSynTx 0`. To test one carrier in isolation, open an
+MPTCP socket bound to that modem's address and watch the counters move:
+
+```bash
+nstat -n   # reset the delta counters
+python3 -c 'import socket; s=socket.socket(socket.AF_INET, socket.SOCK_STREAM, 262); s.bind(("<modem ip>",0)); s.connect(("<vps ip>", 10001)); s.close()'
+nstat | grep -E 'MPCapableSYNACKRX|MPCapableFallbackSYNACK'
+```
+
+(`262` is `IPPROTO_MPTCP`.) `MPCapableSYNACKRX 1` means the carrier passes
+MPTCP on that port; `MPCapableFallbackSYNACK 1` means it does not. A capture on
+the modem interface shows the stripped SYN-ACK directly:
+
+```bash
+tcpdump -ni wwanN -v 'tcp port 10001 and tcp[tcpflags] & tcp-syn != 0'
+```
+
+### Ports the O2 proxy does not intercept
+
+The proxy is applied per destination port, and a few ports are left alone,
+apparently so that VoIP and VPN clients keep working. From an O2/Tesco SIM the
+following ports reach the VPS directly, with the VPS's own TCP fingerprint in
+the SYN-ACK and every MPTCP option intact: **20, 53, 1723, 5060, 10000, 10001
+and 10002** — FTP-data, DNS, PPTP, SIP and a small block above 10000. Every
+other port we have used, including 80, 443 and the former default 8388, is
+proxied.
+With a temporary MPTCP listener on the VPS, all seven passed `MP_CAPABLE` from
+Tesco, and on 5060 and 10001 a connection opened over EE received working
+`MP_JOIN`s from both Tesco and TalkMobile. The carrier still clamps MSS to 1348
+on those ports, which is harmless.
+
+Of the seven, 10001 is the sensible choice for this tunnel. 53 collides with
+`systemd-resolved` on the VPS and is intercepted or rate-limited on many other
+networks; 5060 is inspected by SIP application-level gateways on other carriers
+and home routers, which may mangle non-SIP traffic; 1723 is often blocked as
+PPTP. 10000-10002 carry no such baggage, and 10001 was verified on all three
+carriers. This is carrier policy and can change without notice; the counters
+above are the way to notice.
+
+So the options for making an O2/Tesco link carry a redundant subflow are:
+
+1. Run `ssserver` on one of the exempt ports (`SS_PORT=10001` in `config.sh`).
+   Cheapest by far, and the preferred route.
+2. Wrap the O2 path in a UDP tunnel such as WireGuard to the VPS and run the
+   MPTCP subflow inside it, so the proxy never sees TCP options. UDP passes on
+   all three carriers. Measured with a UDP echo on the VPS: EE and Tesco return
+   payloads up to at least 1600 bytes (fragments allowed), TalkMobile drops
+   payloads of 1472 bytes and above, so keep the outer tunnel MTU under about
+   1400 there.
+3. A different APN is not an option for Tesco (only `prepay.tesco-mobile.com`
+   connects), and IPv6 is not offered on the bearer.
+
+None of this is implemented yet; the installer does not check the carrier and
+the dispatcher does not care which modem gets the bypass route.
 
 ## Alcatel modem quirks and recovery
 

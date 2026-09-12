@@ -4,7 +4,7 @@
 
 # ------- Shadowsocks (shared between Pi client and VPS server) -------
 VPS_IP=""
-SS_PORT=8388
+SS_PORT=10001
 SS_METHOD="chacha20-ietf-poly1305"
 SS_PASSWORD=""
 

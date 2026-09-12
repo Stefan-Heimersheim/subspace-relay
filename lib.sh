@@ -46,6 +46,17 @@ render_template() {
     log "  rendered: $dst"
 }
 
+# render_template_force SRC DST [MODE]
+# Like render_template, but always updates DST when the rendered content
+# changes. Use it for files the installer owns outright.
+render_template_force() {
+    local src=$1 dst=$2 mode=${3:-0644}
+    local tmp; tmp=$(mktemp)
+    envsubst < "$src" > "$tmp"
+    install_file "$tmp" "$dst" "$mode"
+    rm -f "$tmp"
+}
+
 # install_file SRC DST [MODE] — like `install`, but only when content differs.
 install_file() {
     local src=$1 dst=$2 mode=${3:-0644}

@@ -34,16 +34,6 @@ read_shadowsocks_client_config() {
     esac
 }
 
-# render_template_force SRC DST [MODE]
-# Like render_template, but always updates DST when rendered content changes.
-render_template_force() {
-    local src=$1 dst=$2 mode=${3:-0644}
-    local tmp; tmp=$(mktemp)
-    envsubst < "$src" > "$tmp"
-    install_file "$tmp" "$dst" "$mode"
-    rm -f "$tmp"
-}
-
 ENV_VPS_IP="${VPS_IP:-}"
 ENV_SS_PASSWORD="${SS_PASSWORD:-}"
 ENV_AP_PSK="${AP_PSK:-}"
@@ -65,7 +55,7 @@ fi
 [ -n "${VPS_IP:-}" ] || die "set VPS_IP in config.sh, pass VPS_IP=... on the command line, or keep /etc/shadowsocks/client.json on the Pi"
 require_ipv4 VPS_IP "$VPS_IP"
 [ -n "${SS_PASSWORD:-}" ] || die "set SS_PASSWORD in config.sh, pass SS_PASSWORD=... on the command line, or keep /etc/shadowsocks/client.json on the Pi"
-: "${SS_PORT:=8388}"
+: "${SS_PORT:=10001}"
 : "${SS_METHOD:=chacha20-ietf-poly1305}"
 : "${AP_SSID:=PiMPTCP}"
 : "${AP_SUBNET:=192.168.4}"

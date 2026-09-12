@@ -62,7 +62,7 @@ if [ -z "${SS_PASSWORD:-}" ]; then
     SS_PASSWORD="$(generate_ss_password)"
 fi
 : "${VPS_IP:=$(detect_public_ip)}"
-: "${SS_PORT:=8388}"
+: "${SS_PORT:=10001}"
 : "${SS_METHOD:=chacha20-ietf-poly1305}"
 : "${VPS_WAN_IFACE:=$(ip route show default | awk '/default/ {print $5; exit}')}"
 [ -n "$VPS_IP" ] || die "could not detect public VPS IP; set VPS_IP in config.sh or the environment"
@@ -178,7 +178,7 @@ systemctl enable shadowsocks-server.service >/dev/null
 
 note "/etc/shadowsocks/server.json"
 install -d /etc/shadowsocks
-render_template "$SRC/shadowsocks-server.json.template" /etc/shadowsocks/server.json 0600
+render_template_force "$SRC/shadowsocks-server.json.template" /etc/shadowsocks/server.json 0600
 chown shadowsocks:shadowsocks /etc/shadowsocks/server.json
 chmod 0600 /etc/shadowsocks/server.json
 
