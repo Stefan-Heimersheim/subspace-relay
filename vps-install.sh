@@ -122,13 +122,6 @@ install_custom_kernel() {
     cache="/tmp/mptcp-kernel-${KERNEL_RELEASE}"
     url_base="${KERNEL_REPO}/releases/download/${KERNEL_RELEASE}"
 
-    if [ "$(uname -r)" = "$KERNEL_VPS_VERSION" ]; then
-        log "running kernel already matches ${KERNEL_VPS_VERSION}"
-        grep -qw redundant /proc/sys/net/mptcp/available_schedulers 2>/dev/null \
-            || die "running kernel ${KERNEL_VPS_VERSION} has no 'redundant' MPTCP scheduler"
-        log "redundant MPTCP scheduler available"
-        return 0
-    fi
     if [ "$(dpkg-query -W -f='${Version}' "linux-image-${KERNEL_VPS_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ] &&
        [ "$(dpkg-query -W -f='${Version}' "linux-headers-${KERNEL_VPS_VERSION}" 2>/dev/null || true)" = "$KERNEL_PKG_VERSION" ]; then
         log "kernel packages already installed (${KERNEL_PKG_VERSION})"
