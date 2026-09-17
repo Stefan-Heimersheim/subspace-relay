@@ -1,0 +1,39 @@
+#!/bin/bash
+# modem-watchdog: recover an Alcatel stick whose MBIM control channel has hung.
+set -u
+POLL=${POLL:-20}          # seconds between checks
+GRACE=${GRACE:-60}        # how long a stick may be without a modem before it is reset (MM needs ~25 s after enumeration)
+COOLDOWN=${COOLDOWN:-300} # minimum spacing between resets of the same port
+VENDOR=1bbb
+
+kmsg() { echo "modem-watchdog: $*"; echo "modem-watchdog: $*" > /dev/kmsg 2>/dev/null || true; }
+
+mm_ports() {   # USB port names (1-1.2.3) of every modem ModemManager currently has
+    local m
+    for m in $(mmcli -L 2>/dev/null | grep -oE 'Modem/[0-9]+' | cut -d/ -f2); do
+        mmcli -J -m "$m" 2>/dev/null | jq -r '.modem.generic.device // empty' | xargs -rn1 basename
+    done
+}
+
+declare -A missing_since last_reset
+kmsg "started (poll ${POLL}s, grace ${GRACE}s, cooldown ${COOLDOWN}s)"
+while true; do
+    known=$(mm_ports)
+    now=$(date +%s)
+    for d in /sys/bus/usb/devices/*; do
+        port=${d##*/}
+        [[ $port == *:* ]] && continue                              # an interface, not a device
+        [ "$(cat "$d/idVendor" 2>/dev/null)" = "$VENDOR" ] || continue
+        if grep -qx "$port" <<<"$known"; then unset "missing_since[$port]"; continue; fi
+        : "${missing_since[$port]:=$now}"
+        (( now - missing_since[$port] < GRACE )) && continue
+        (( now - ${last_reset[$port]:-0} < COOLDOWN )) && continue
+        node=$(printf '%03d/%03d' "$(cat "$d/busnum")" "$(cat "$d/devnum")")   # usbreset's BBB/DDD form
+        kmsg "usbreset $port ($node, $VENDOR:$(cat "$d/idProduct")): no ModemManager modem for $((now - missing_since[$port])) s"
+        out=$(usbreset "$node" 2>&1); rc=$?
+        [ $rc -eq 0 ] || kmsg "usbreset $port failed (rc $rc): $out"
+        last_reset[$port]=$now
+        missing_since[$port]=$now
+    done
+    sleep "$POLL"
+done

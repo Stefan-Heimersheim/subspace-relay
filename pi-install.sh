@@ -72,10 +72,11 @@ install_pi_packages() {
     # Runtime: network-manager modemmanager dnsmasq iptables-persistent.
     # Install-time: curl (fetch sslocal), xz-utils (extract), gettext-base
     # (envsubst), openssl (AP_PSK). vnstat: enabled as a service below.
-    # jq: reads password from existing config.
+    # jq: reads password from existing config, and modem-watchdog parses
+    # mmcli -J with it. usbutils: usbreset for modem-watchdog.
     apt_ensure network-manager modemmanager mobile-broadband-provider-info \
         dnsmasq iptables-persistent \
-        curl xz-utils gettext-base openssl vnstat jq
+        curl xz-utils gettext-base openssl vnstat jq usbutils
 }
 
 install_custom_kernel() {
@@ -150,6 +151,7 @@ install_persistent_config() {
 
     note "systemd units"
     install_file "$SRC/mptcp-limits.service"        /etc/systemd/system/mptcp-limits.service
+    install_file "$SRC/modem-watchdog.service"      /etc/systemd/system/modem-watchdog.service
     local ss_unit_tmp; ss_unit_tmp=$(mktemp)
     sed "s|__VPS_IP__|$VPS_IP|g" "$SRC/shadowsocks-client.service" > "$ss_unit_tmp"
     install_file "$ss_unit_tmp" /etc/systemd/system/shadowsocks-client.service
@@ -159,11 +161,13 @@ install_persistent_config() {
     rm -f /etc/systemd/system/mptcp-fulltunnel.service
     systemctl daemon-reload
     systemctl enable NetworkManager-wait-online.service >/dev/null 2>&1 || true
-    systemctl enable mptcp-limits.service shadowsocks-client.service >/dev/null
+    systemctl enable mptcp-limits.service shadowsocks-client.service modem-watchdog.service >/dev/null
+    systemctl restart modem-watchdog.service
 
     note "udev + helpers"
     install_file "$SRC/udev-99-alcatel-mbim.rules" /etc/udev/rules.d/99-alcatel-mbim.rules
     install_file "$SRC/sbin-alcatel-mbim-fix"      /usr/local/sbin/alcatel-mbim-fix 0755
+    install_file "$SRC/sbin-modem-watchdog"        /usr/local/sbin/modem-watchdog 0755
 
     note "NetworkManager"
     install_file "$SRC/NetworkManager.conf" /etc/NetworkManager/NetworkManager.conf

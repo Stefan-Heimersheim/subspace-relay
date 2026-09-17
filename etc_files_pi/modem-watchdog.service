@@ -1,0 +1,12 @@
+[Unit]
+Description=Reset Alcatel modem sticks whose MBIM channel has hung
+After=ModemManager.service
+Wants=ModemManager.service
+
+[Service]
+ExecStart=/usr/local/sbin/modem-watchdog
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
