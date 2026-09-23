@@ -418,6 +418,13 @@ matching `*_SHA256` values from the upstream release notes.
   card growth.
 - `etc_files_pi/mptcp-limits.service` - systemd one-shot that sets MPTCP subflow
   and accepted-address limits on boot.
+- `etc_files_pi/modem-watchdog.service` - systemd service running
+  `modem-watchdog` after ModemManager, restarted on failure.
+- `etc_files_pi/sbin-modem-watchdog` - watchdog that `usbreset`s an Alcatel
+  stick that has had no MBIM-backed ModemManager modem for 60 s (hung MBIM
+  channel, failed enumeration, or AT-only fallback after a wedged session) and
+  logs to `/dev/kmsg`, including a "needs a physical replug" line after two
+  resets in a row do not bring the MBIM modem back.
 - `etc_files_pi/networkmanager-dispatcher-99-mptcp-wwan` - NetworkManager
   dispatcher hook that manages MPTCP endpoints, per-modem source routing, and
   the direct VPS bypass route for `wwan*` and `eth1` through `eth8`

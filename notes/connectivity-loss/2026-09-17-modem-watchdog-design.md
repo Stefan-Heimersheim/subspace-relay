@@ -27,3 +27,19 @@ the kernel's own USB events, and the connectivity logger plots it in its
 power/USB chart (level 7 for a reset, level 8 for "needs a physical replug").
 journald turns the "modem-watchdog:" prefix into the syslog identifier, so the
 MESSAGE field starts at "usbreset ..." / "<port> needs ...".
+
+## How it works, in numbers
+
+Every 20 s it lists the Alcatel USB devices in sysfs and the USB port and
+primary port behind each ModemManager modem. Any stick without an MBIM-backed
+modem (primary port `cdc-wdmN`) for 60 s (GRACE) gets a `usbreset BBB/DDD`, at
+most once per 5 min per port (COOLDOWN). Timing uses `/proc/uptime`, not the
+wall clock (`2026-09-23-watchdog-clock-jump.md`). Each reset is written to
+`/dev/kmsg` as `modem-watchdog: usbreset <port> (BBB/DDD, 1bbb:00b6): <reason>`.
+After two consecutive resets (REPLUG_AFTER) that still leave no MBIM modem it
+logs `modem-watchdog: <port> needs a physical replug: ...` once and keeps
+retrying every 5 min in case a later reset happens to force a full
+re-enumeration. Nothing in the watchdog touches a stick ModemManager still
+owns through MBIM. Every reset re-rolls the `sim-operator-id` profile race
+(`../carrier-profiles/2026-09-12-sim-operator-id-race.md`). The stick is
+usually back on its profile about 25 s after a reset.
