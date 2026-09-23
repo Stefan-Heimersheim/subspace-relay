@@ -37,6 +37,9 @@ Related repos by the same maintainer:
   merges; agents do not.
 - Never force-push. If a push is rejected, `git fetch` first: GitHub rewrites
   stacked branches after the PR below them merges.
+- No git credential helper or `gh` login is set up on the Pi. `~/.env` may
+  hold a `GH_TOKEN`; source it and pass it to `gh` or a one-off git
+  credential helper for the push. Never commit it or copy it into git config.
 - End every commit message with an attribution trailer matching the existing
   history, e.g. `Co-authored-by: Claude Fable 5.1 <noreply@anthropic.com>` or
   `Co-authored-by: Codex GPT-6 Astra <noreply@openai.com>`.
