@@ -16,6 +16,11 @@ The repo is two idempotent Bash installers (`pi-install.sh`, `vps-install.sh`,
 sharing `lib.sh` and `config.sh`) plus the config trees they install
 (`etc_files_pi/`, `etc_files_vps/`); there is no test suite.
 
+Hardware, as of September 2026: the sticks and a u-blox GPS sit on a StarTech
+4-port hub (`14b0:045a`) with its own 5 V aux input; before that a TP-Link
+UH710 fed 12 V from a 20 V USB-PD cable through a variable adaptor, which still
+browned out. Power and hub history is in `notes/connectivity-loss/`.
+
 Related repos by the same maintainer:
 
 - [linux-mptcp-redundant](https://github.com/Stefan-Heimersheim/linux-mptcp-redundant):
