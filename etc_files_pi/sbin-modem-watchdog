@@ -21,7 +21,7 @@ declare -A missing_since last_reset resets
 kmsg "started (poll ${POLL}s, grace ${GRACE}s, cooldown ${COOLDOWN}s, replug after ${REPLUG_AFTER} resets)"
 while true; do
     known=$(mm_ports)
-    now=$(date +%s)
+    read -r now _ < /proc/uptime; now=${now%.*}   # monotonic: wall-clock time jumps (NTP after a cold boot) must not age the timers
     for d in /sys/bus/usb/devices/*; do
         port=${d##*/}
         [[ $port == *:* ]] && continue                              # an interface, not a device
@@ -30,7 +30,7 @@ while true; do
         if [ "$kind" = mbim ]; then unset "missing_since[$port]" "resets[$port]"; continue; fi
         : "${missing_since[$port]:=$now}"
         (( now - missing_since[$port] < GRACE )) && continue
-        (( now - ${last_reset[$port]:-0} < COOLDOWN )) && continue
+        [[ -v last_reset[$port] ]] && (( now - last_reset[$port] < COOLDOWN )) && continue
         node=$(printf '%03d/%03d' "$(cat "$d/busnum")" "$(cat "$d/devnum")")   # usbreset's BBB/DDD form
         if [ "$kind" = at ]; then why="ModemManager has only an AT-only modem (MBIM port dead)"; else why="no ModemManager modem"; fi
         kmsg "usbreset $port ($node, $VENDOR:$(cat "$d/idProduct")): $why for $((now - missing_since[$port])) s"
